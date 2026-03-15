@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from src.agent.state import AgentState
 from src.core.types import Chunk
 from src.core.utils import Timer
-from src.mcp_client.tools import RAGTools, format_chunks_for_context
+from src.mcp_client.tools import RAGTools
 
 
 async def retrieve_from_rag(query: str, rag_tools: RAGTools, top_k: int = 10) -> List[Chunk]:
@@ -54,7 +54,7 @@ async def retrieve_node(
         from src.core.config import load_settings
 
         settings = load_settings()
-        rag_tools = RAGTools(settings.rag_server, use_mock=True)
+        rag_tools = RAGTools(settings.rag_server, use_mock=False)
 
     all_chunks: List[Chunk] = []
 

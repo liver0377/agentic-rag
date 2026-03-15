@@ -5,7 +5,7 @@ Rewrites the query to improve retrieval results.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from src.agent.state import AgentState
 

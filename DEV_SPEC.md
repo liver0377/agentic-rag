@@ -1,6 +1,6 @@
 # Agentic RAG 知识助手 - 开发规格文档
 
-> 版本：1.0 — 完整开发规格
+> 版本：1.1 — 完整开发规格
 
 ## 目录
 
@@ -12,6 +12,9 @@
 - [6. 配置设计](#6-配置设计)
 - [7. 项目排期](#7-项目排期)
 - [8. 可扩展性](#8-可扩展性)
+- [9. 评估体系架构](#9-评估体系架构)
+- [10. 关键设计决策](#10-关键设计决策)
+- [11. 面试亮点](#11-面试亮点)
 
 ---
 
@@ -125,11 +128,109 @@ Agentic RAG:  Query → [Analyze → Retrieve → Evaluate → Rewrite? → Sub-
 
 ### 2.4 评估体系
 
+本项目的评估体系由**两个独立但互补的层级**组成：
+
+| 层级 | 位置 | 触发方式 | 职责 | 工具 |
+|------|------|----------|------|------|
+| **RAG离线评估** | RAG MCP Server | Dashboard 手动触发 | 评估检索系统整体质量 | Ragas / Custom |
+| **Agent实时评估** | Agent端 | 每次检索后实时 | 决定是否改写查询重试 | evaluate_node |
+
+#### 2.4.1 两层评估的区别
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        完整评估体系架构                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │               RAG MCP Server (离线评估)                        │  │
+│  │                                                               │  │
+│  │   黄金测试集 + Dashboard触发                                   │  │
+│  │         ↓                                                     │  │
+│  │   EvalRunner → Ragas/Custom Evaluator                        │  │
+│  │         ↓                                                     │  │
+│  │   输出: 评估报告 (faithfulness, answer_relevancy, hit_rate)   │  │
+│  │                                                               │  │
+│  │   用途: 系统调优、回归测试、质量监控                            │  │
+│  │                                                               │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                              │                                      │
+│                              │ query_knowledge_hub                  │
+│                              │ 返回: chunks + scores               │
+│                              ▼                                      │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │               Agent端 (实时决策)                               │  │
+│  │                                                               │  │
+│  │   retrieve → evaluate_node → sufficient?                      │  │
+│  │                    │           │                              │  │
+│  │                    │      ┌────┴────┐                         │  │
+│  │                    │      ▼         ▼                         │  │
+│  │                    │   generate   rewrite                      │  │
+│  │                    │              │                           │  │
+│  │                    └──────────────┘                           │  │
+│  │                                                               │  │
+│  │   输入: chunks + scores (来自RAG)                             │  │
+│  │   输出: 是否充分决策                                          │  │
+│  │                                                               │  │
+│  │   用途: 实时判断是否改写查询重试                               │  │
+│  │                                                               │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 2.4.2 为什么需要两层评估？
+
+| 问题 | 答案 |
+|------|------|
+| RAG服务返回的score不是评估吗？ | score是单个chunk的相关性评分，不是整体检索质量的评估 |
+| 为什么不在RAG服务中做实时评估？ | Ragas评估需要调用LLM，延迟高(1-3秒/指标)，不适合在线检索 |
+| Agent端评估是否重复？ | 不重复。Agent评估基于RAG返回的scores做实时决策，不是重新评估 |
+
+#### 2.4.3 RAG离线评估详情
+
+RAG MCP Server 提供的评估能力：
+
+| 评估器 | 指标 | 输入需求 | 适用场景 |
+|--------|------|----------|----------|
+| CustomEvaluator | hit_rate, MRR | Ground Truth 标签 | 快速回归测试、CI/CD |
+| RagasEvaluator | faithfulness, answer_relevancy, context_precision | query + response + contexts | 质量评估、模型对比 |
+
+**注意**：Ragas评估需要`generated_answer`，但RAG检索服务不生成答案。因此需要：
+- 通过Dashboard手动输入答案
+- 或由Agent端生成答案后传回评估
+
+#### 2.4.4 Agent实时评估详情
+
+Agent端的`evaluate_node`是一个**决策节点**，不是质量评估：
+
+```python
+def evaluate_retrieval(query: str, chunks: List[Chunk], threshold: float = 0.5):
+    """
+    基于RAG返回的chunk scores，判断检索结果是否足够回答问题。
+    
+    简化逻辑：
+    1. 计算top5 chunk的平均score
+    2. 判断是否达到阈值且数量足够
+    
+    返回：
+    - is_sufficient: 是否充分
+    - reason: 决策原因
+    """
+    if not chunks:
+        return {"is_sufficient": False, "reason": "未检索到任何相关文档"}
+    
+    avg_score = sum(c.score for c in chunks[:5]) / min(5, len(chunks))
+    is_sufficient = avg_score >= threshold and len(chunks) >= 3
+    
+    return {"is_sufficient": is_sufficient, "score": avg_score}
+```
+
+#### 2.4.5 可观测性指标
+
 | 维度 | 指标 | 工具 |
 |------|------|------|
-| **检索质量** | Hit Rate, MRR, Recall@K | RAGAS |
-| **生成质量** | Faithfulness, Relevancy | RAGAS + LLM-as-Judge |
-| **Agent 可追溯性** | 决策路径、工具调用链、Token 消耗 | LangFuse |
+| **Agent可追溯性** | 决策路径、工具调用链、Token消耗 | LangFuse |
 | **性能指标** | 端到端延迟、各阶段耗时 | LangFuse |
 
 ---
@@ -548,32 +649,232 @@ LANGFUSE_SECRET_KEY=your_langfuse_secret_key
 
 ---
 
-## 9. 关键设计决策
+## 9. 评估体系架构
+
+### 9.1 整体架构
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           完整评估体系                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌─────────────────────────────────────────────────────────────────┐   │
+│   │                    RAG MCP Server                                │   │
+│   │                                                                 │   │
+│   │   ┌─────────────────────────────────────────────────────────┐   │   │
+│   │   │              在线检索路径 (Online Retrieval)             │   │   │
+│   │   │                                                         │   │   │
+│   │   │   query_knowledge_hub(query, top_k)                     │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   HybridSearch (Dense + Sparse + RRF)                   │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   Reranker (CrossEncoder / LLM)                         │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   MCPToolResponse {                                      │   │   │
+│   │   │     content: str,                                        │   │   │
+│   │   │     citations: List,                                     │   │   │
+│   │   │     metadata: { query, result_count, collection },      │   │   │
+│   │   │     chunks: [{ id, text, score, metadata }]             │   │   │
+│   │   │   }                                                      │   │   │
+│   │   │                                                         │   │   │
+│   │   │   ⚠️ 不包含评估指标，只返回检索结果                       │   │   │
+│   │   │                                                         │   │   │
+│   │   └─────────────────────────────────────────────────────────┘   │   │
+│   │                                                                 │   │
+│   │   ┌─────────────────────────────────────────────────────────┐   │   │
+│   │   │              离线评估路径 (Offline Evaluation)           │   │   │
+│   │   │                                                         │   │   │
+│   │   │   Dashboard 触发                                         │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   EvalRunner.load_test_set(golden_test_set.json)        │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   For each test_case:                                   │   │   │
+│   │   │     - HybridSearch.search(query) → chunks               │   │   │
+│   │   │     - Reranker.rerank(query, chunks)                    │   │   │
+│   │   │     - Evaluator.evaluate(query, chunks, answer, truth)  │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   EvalReport {                                          │   │   │
+│   │   │     faithfulness: 0.85,                                  │   │   │
+│   │   │     answer_relevancy: 0.92,                              │   │   │
+│   │   │     hit_rate: 0.75,                                      │   │   │
+│   │   │     mrr: 0.68                                            │   │   │
+│   │   │   }                                                      │   │   │
+│   │   │                                                         │   │   │
+│   │   └─────────────────────────────────────────────────────────┘   │   │
+│   │                                                                 │   │
+│   └─────────────────────────────────────────────────────────────────┘   │
+│                                    │                                    │
+│                                    │ MCP Protocol                       │
+│                                    ▼                                    │
+│   ┌─────────────────────────────────────────────────────────────────┐   │
+│   │                    Agent (本项目)                                │   │
+│   │                                                                 │   │
+│   │   ┌─────────────────────────────────────────────────────────┐   │   │
+│   │   │              实时评估路径 (Real-time Decision)           │   │   │
+│   │   │                                                         │   │   │
+│   │   │   MCP Client.query_knowledge_hub()                      │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   RetrievalResult { chunks, scores }                    │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   evaluate_node(chunks, threshold)                      │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   Decision { is_sufficient, reason }                    │   │   │
+│   │   │         ↓                                               │   │   │
+│   │   │   ┌────┴────┐                                           │   │   │
+│   │   │   ▼         ▼                                           │   │   │
+│   │   │ generate   rewrite → retrieve (循环)                    │   │   │
+│   │   │                                                         │   │   │
+│   │   │   ⚠️ 这是流程控制决策，不是质量评估                       │   │   │
+│   │   │                                                         │   │   │
+│   │   └─────────────────────────────────────────────────────────┘   │   │
+│   │                                                                 │   │
+│   │   ┌─────────────────────────────────────────────────────────┐   │   │
+│   │   │              可观测性 (Observability)                    │   │   │
+│   │   │                                                         │   │   │
+│   │   │   LangFuse Client                                        │   │   │
+│   │   │     - trace.span() → 记录每个节点执行                    │   │   │
+│   │   │     - trace.generation() → 记录LLM调用                   │   │   │
+│   │   │     - 自定义指标 → decision_path, rewrite_count          │   │   │
+│   │   │                                                         │   │   │
+│   │   └─────────────────────────────────────────────────────────┘   │   │
+│   │                                                                 │   │
+│   └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.2 评估层级对照表
+
+| 维度 | RAG离线评估 | Agent实时评估 |
+|------|------------|---------------|
+| **触发方式** | Dashboard手动触发 | 每次检索后自动 |
+| **执行时机** | 批量 | 实时 |
+| **数据来源** | 黄金测试集 | 用户实时查询 |
+| **输入** | query + expected_chunks + generated_answer | chunks + scores |
+| **输出** | 评估指标报告 | 是否充分的决策 |
+| **调用LLM** | 是 (Ragas需要) | 否 |
+| **延迟** | 1-3秒/指标 | <10ms |
+| **用途** | 系统调优、回归测试 | 流程控制决策 |
+
+### 9.3 数据流详解
+
+#### 9.3.1 RAG返回数据结构
+
+```python
+@dataclass
+class MCPToolResponse:
+    content: str                    # Markdown格式内容
+    citations: List[Citation]       # 引用列表
+    metadata: Dict[str, Any]        # 元数据
+    is_empty: bool                  # 是否为空
+    image_contents: List[Image]     # 多模态图片
+
+@dataclass  
+class Chunk:
+    id: str
+    text: str
+    score: float                    # ⬅️ RAG检索相关性评分
+    metadata: Dict[str, Any]
+```
+
+**关键点**：
+- `score`是单个chunk与query的相关性评分（由Dense/Sparse/Reranker计算）
+- 不包含"检索结果是否足够"的判断
+- 不包含Ragas评估指标
+
+#### 9.3.2 Agent评估逻辑
+
+```python
+def evaluate_retrieval(
+    query: str, 
+    chunks: List[Chunk], 
+    threshold: float = 0.5
+) -> Dict[str, Any]:
+    """
+    基于RAG返回的scores判断检索结果是否足够。
+    
+    这是一个简化的决策逻辑，不重新计算相关性：
+    1. 计算top5 chunk的平均score
+    2. 检查数量是否足够(>=3)
+    3. 返回决策结果
+    
+    Args:
+        query: 原始查询（用于日志）
+        chunks: RAG返回的chunks（已包含score）
+        threshold: 平均分阈值
+        
+    Returns:
+        {
+            "is_sufficient": bool,    # 是否充分
+            "reason": str,            # 决策原因
+            "score": float            # 平均分
+        }
+    """
+    if not chunks:
+        return {
+            "is_sufficient": False,
+            "reason": "未检索到任何相关文档",
+            "score": 0.0,
+        }
+    
+    avg_score = sum(c.score for c in chunks[:5]) / min(5, len(chunks))
+    is_sufficient = avg_score >= threshold and len(chunks) >= 3
+    
+    return {
+        "is_sufficient": is_sufficient,
+        "reason": f"检索结果{'充分' if is_sufficient else '不足'} (avg_score={avg_score:.2f})",
+        "score": avg_score,
+    }
+```
+
+### 9.4 设计决策
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| Agent评估是否调用LLM | 否 | 实时决策需要低延迟，避免额外LLM调用 |
+| 是否移除evaluate_node | 否 | 这是流程控制决策，与RAG离线评估职责不同 |
+| 简化评估逻辑 | 是 | 移除冗余的关键词匹配，直接基于scores判断 |
+| Ragas评估位置 | RAG Server端 | 需要黄金测试集和用户输入答案，适合离线执行 |
+
+### 9.5 未来扩展
+
+| 扩展方向 | 说明 | 实现方式 |
+|----------|------|----------|
+| **在线质量评估** | 在Agent端实时评估生成质量 | 调用轻量级评估模型 |
+| **评估结果缓存** | 缓存相似查询的评估结果 | Redis / 本地缓存 |
+| **A/B Testing** | 对比不同评估策略 | LangFuse Sessions |
+| **用户反馈闭环** | 根据用户反馈调整阈值 | Feedback节点 + 参数调优 |
+
+---
+
+## 10. 关键设计决策
 
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
 | Agent 框架 | LangGraph | 状态机模型适合条件分支，面试展示技术深度 |
 | 检索方式 | MCP Client | 解耦架构，可独立部署 RAG Server |
-| 评估工具 | LangFuse + RAGAS | 覆盖在线追踪和离线评估双重需求 |
+| 评估架构 | 两层评估 | RAG离线评估质量，Agent实时决策流程 |
 | UI 框架 | Streamlit | 快速迭代，适合 Demo 展示 |
 
 ---
 
-## 10. 面试亮点
+## 11. 面试亮点
 
-### 10.1 技术深度
+### 11.1 技术深度
 
 1. **LangGraph 状态机设计**：展示对 Agent 架构的理解
 2. **条件分支与循环**：展示复杂业务逻辑的建模能力
 3. **MCP 协议**：展示对 LLM 生态标准的掌握
+4. **两层评估架构**：展示对系统设计的深入思考
 
-### 10.2 工程能力
+### 11.2 工程能力
 
 1. **可插拔架构**：抽象接口 + 工厂模式
 2. **配置驱动**：零代码切换 LLM Provider
 3. **可观测性**：全链路追踪
+4. **关注点分离**：RAG评估与Agent决策职责清晰
 
-### 10.3 业务理解
+### 11.3 业务理解
 
 1. **Agentic RAG**：展示对 RAG 发展趋势的理解
-2. **企业场景**：展示对 B 端需求的理解
+2. **企业场景**：展示对 B 端需求的理解 |

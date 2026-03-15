@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config import load_settings
 from src.agent.graph import KnowledgeAssistant
+from src.core.config import load_settings
 
 
 def init_session_state():

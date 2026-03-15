@@ -1,40 +1,39 @@
 """Custom metrics for Agent evaluation.
 
 This module defines metrics specific to Agentic RAG:
-- Decision quality
-- Retrieval effectiveness
-- Response quality
+- Agent performance metrics (latency, decisions)
+- Response quality metrics (citations)
+
+Note on Evaluation Architecture (see DEV_SPEC.md Section 9):
+- RAG Server handles offline evaluation (Ragas: faithfulness, answer_relevancy)
+- Agent handles real-time decision (evaluate_node in evaluator.py)
+- This module provides post-processing metrics for observability
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 @dataclass
 class AgentMetrics:
     """Metrics for agent performance."""
 
-    # Query metrics
     query_length: int = 0
     query_complexity: str = "simple"
     sub_query_count: int = 0
 
-    # Retrieval metrics
     retrieval_count: int = 0
     avg_chunk_score: float = 0.0
     unique_chunks: int = 0
 
-    # Decision metrics
     rewrite_count: int = 0
     decision_path: List[str] = field(default_factory=list)
 
-    # Response metrics
     response_length: int = 0
     citation_count: int = 0
 
-    # Timing
     total_latency_ms: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -107,29 +106,6 @@ def calculate_metrics(agent_output: Dict[str, Any]) -> AgentMetrics:
     metrics.citation_count = len(citations)
 
     return metrics
-
-
-def calculate_retrieval_score(chunks: List[Dict[str, Any]]) -> float:
-    """Calculate retrieval quality score.
-
-    Args:
-        chunks: Retrieved chunks.
-
-    Returns:
-        Score from 0 to 1.
-    """
-    if not chunks:
-        return 0.0
-
-    scores = [c.get("score", 0) for c in chunks if isinstance(c, dict)]
-    if not scores:
-        return 0.0
-
-    avg_score = sum(scores) / len(scores)
-
-    count_bonus = min(len(chunks) / 10, 0.2)
-
-    return min(avg_score + count_bonus, 1.0)
 
 
 def calculate_citation_coverage(response: str, citations: List[Dict[str, Any]]) -> float:

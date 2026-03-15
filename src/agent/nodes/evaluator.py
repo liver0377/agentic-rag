@@ -1,11 +1,19 @@
 """Retrieval Evaluator Node.
 
 Evaluates whether retrieved chunks are sufficient to answer the query.
+This is a decision node for flow control, NOT a quality evaluation.
+
+Design Decision:
+- RAG Server handles offline evaluation (Ragas: faithfulness, answer_relevancy)
+- Agent handles real-time decision (whether to rewrite query)
+- These are complementary, not redundant
+
+See DEV_SPEC.md Section 9 for architecture details.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from src.agent.state import AgentState
 from src.core.types import Chunk
@@ -14,10 +22,13 @@ from src.core.types import Chunk
 def evaluate_retrieval(query: str, chunks: List[Chunk], threshold: float = 0.5) -> Dict[str, Any]:
     """Evaluate if retrieval results are sufficient.
 
+    This is a simplified decision logic based on RAG-returned scores.
+    No additional LLM calls or keyword matching - just threshold-based decision.
+
     Args:
-        query: The original query.
-        chunks: Retrieved chunks.
-        threshold: Minimum acceptable score.
+        query: The original query (for logging purposes).
+        chunks: Retrieved chunks with scores from RAG.
+        threshold: Minimum acceptable average score.
 
     Returns:
         Evaluation result with is_sufficient and reason.
@@ -32,47 +43,21 @@ def evaluate_retrieval(query: str, chunks: List[Chunk], threshold: float = 0.5) 
     top_chunks = chunks[:5]
     avg_score = sum(c.score for c in top_chunks) / len(top_chunks)
 
-    query_lower = query.lower()
-    query_keywords = set(query_lower.split())
+    min_chunks_required = 3
+    is_sufficient = avg_score >= threshold and len(chunks) >= min_chunks_required
 
-    matched_chunks = 0
-    for chunk in top_chunks:
-        chunk_lower = chunk.text.lower()
-        matches = sum(1 for kw in query_keywords if kw in chunk_lower)
-        if matches >= 2:
-            matched_chunks += 1
-
-    keyword_match_ratio = matched_chunks / len(top_chunks)
-
-    combined_score = avg_score * 0.6 + keyword_match_ratio * 0.4
-
-    if avg_score < 0.3:
-        return {
-            "is_sufficient": False,
-            "reason": f"检索结果相关性较低 (score={avg_score:.2f})，建议改写查询",
-            "score": combined_score,
-        }
-
-    if len(chunks) < 3:
-        return {
-            "is_sufficient": False,
-            "reason": f"检索结果数量不足 ({len(chunks)}个)，建议改写查询获取更多结果",
-            "score": combined_score,
-        }
-
-    if keyword_match_ratio < 0.3:
-        return {
-            "is_sufficient": False,
-            "reason": "检索结果与查询关键词匹配度较低，建议改写查询",
-            "score": combined_score,
-        }
+    if not is_sufficient:
+        if avg_score < threshold:
+            reason = f"检索结果相关性较低 (avg_score={avg_score:.2f} < threshold={threshold})"
+        else:
+            reason = f"检索结果数量不足 ({len(chunks)} < {min_chunks_required})"
+    else:
+        reason = f"检索结果充分 (avg_score={avg_score:.2f}, chunks={len(chunks)})"
 
     return {
-        "is_sufficient": combined_score >= threshold,
-        "reason": f"检索结果较为充分 (score={combined_score:.2f})"
-        if combined_score >= threshold
-        else f"检索结果质量有待提高 (score={combined_score:.2f})",
-        "score": combined_score,
+        "is_sufficient": is_sufficient,
+        "reason": reason,
+        "score": avg_score,
     }
 
 
@@ -80,7 +65,7 @@ def evaluate_node(state: AgentState, threshold: float = 0.5) -> Dict[str, Any]:
     """Evaluate retrieval results.
 
     This node:
-    1. Checks if retrieved chunks are relevant
+    1. Checks if retrieved chunks are relevant (based on RAG scores)
     2. Determines if query should be rewritten
     3. Updates evaluation result in state
 

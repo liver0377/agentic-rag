@@ -9,7 +9,6 @@ import re
 from typing import Any, Dict, List
 
 from src.agent.state import AgentState
-from src.agent.prompts import get_prompt
 
 
 def decompose_query_with_llm(query: str, llm_client: Any = None) -> List[str]:

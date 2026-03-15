@@ -6,11 +6,11 @@ Provides high-level tool abstractions for Agent use.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional, Union
 
 from src.core.config import RAGServerConfig
-from src.core.types import Chunk, RetrievalResult
-from src.mcp_client.client import RAGMCPClient, MockRAGMCPClient
+from src.core.types import Chunk
+from src.mcp_client.client import HTTPMCPClient, MockRAGMCPClient
 
 
 @dataclass
@@ -43,15 +43,15 @@ class RAGTools:
         """
         self.config = config
         self.use_mock = use_mock
-        self._client: Optional[RAGMCPClient] = None
+        self._client: Optional[Union[HTTPMCPClient, MockRAGMCPClient]] = None
 
-    async def _get_client(self) -> RAGMCPClient:
+    async def _get_client(self) -> Union[HTTPMCPClient, MockRAGMCPClient]:
         """Get or create the MCP client."""
         if self._client is None:
             if self.use_mock:
                 self._client = MockRAGMCPClient(self.config)
             else:
-                self._client = RAGMCPClient(self.config)
+                self._client = HTTPMCPClient(self.config)
             await self._client.connect()
         return self._client
 

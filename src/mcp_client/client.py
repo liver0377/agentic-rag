@@ -1,22 +1,20 @@
 """MCP Client for connecting to RAG MCP Server.
 
 This module provides a client for the Model Context Protocol (MCP)
-to communicate with the RAG MCP Server.
+to communicate with the RAG MCP Server over HTTP transport.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
-import subprocess
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import httpx
 
 from src.core.config import RAGServerConfig
 from src.core.types import Chunk, RetrievalResult
-from src.core.utils import Timer, generate_trace_id
+from src.core.utils import Timer
 
 
 @dataclass
@@ -28,15 +26,15 @@ class MCPToolResult:
     error_message: Optional[str] = None
 
 
-class RAGMCPClient:
-    """MCP Client for RAG Server.
+class HTTPMCPClient:
+    """MCP Client for RAG Server using HTTP transport.
 
-    This client communicates with the RAG MCP Server using stdio transport.
-    It provides methods to call the RAG server's tools for knowledge retrieval.
+    This client communicates with the RAG MCP Server over HTTP,
+    following the MCP 2025-03-26 specification.
 
     Example:
-        >>> config = RAGServerConfig(command=["python", "-m", "src.mcp_server.server"])
-        >>> client = RAGMCPClient(config)
+        >>> config = RAGServerConfig(url="http://127.0.0.1:8080")
+        >>> client = HTTPMCPClient(config)
         >>> async with client:
         ...     result = await client.query_knowledge_hub("What is RAG?")
     """
@@ -48,30 +46,18 @@ class RAGMCPClient:
             config: RAG server configuration.
         """
         self.config = config
-        self._process: Optional[subprocess.Popen] = None
+        self._session_id: Optional[str] = None
+        self._client: Optional[httpx.AsyncClient] = None
         self._request_id = 0
         self._initialized = False
+        self._base_url = config.url.rstrip("/") if config.url else "http://127.0.0.1:8080"
 
     async def connect(self) -> None:
         """Connect to the RAG MCP Server."""
-        if self._process is not None:
+        if self._initialized:
             return
 
-        working_dir = self.config.working_dir
-        if working_dir:
-            cwd = Path(working_dir).resolve()
-        else:
-            cwd = Path.cwd()
-
-        self._process = subprocess.Popen(
-            self.config.command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=str(cwd),
-            text=True,
-            bufsize=1,
-        )
+        self._client = httpx.AsyncClient(timeout=self.config.timeout)
 
         await self._initialize()
 
@@ -82,14 +68,18 @@ class RAGMCPClient:
             "id": self._next_request_id(),
             "method": "initialize",
             "params": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": "2025-03-26",
                 "capabilities": {},
                 "clientInfo": {"name": "agentic-rag-assistant", "version": "0.1.0"},
             },
         }
 
-        await self._send_request(init_request)
-        self._initialized = True
+        response = await self._send_request(init_request)
+
+        if "result" in response:
+            self._initialized = True
+        else:
+            raise RuntimeError(f"Failed to initialize MCP connection: {response}")
 
     def _next_request_id(self) -> int:
         """Get next request ID."""
@@ -105,18 +95,23 @@ class RAGMCPClient:
         Returns:
             The response from the server.
         """
-        if self._process is None:
+        if self._client is None:
             raise RuntimeError("Not connected to MCP server")
 
-        request_json = json.dumps(request) + "\n"
-        self._process.stdin.write(request_json)
-        self._process.stdin.flush()
+        headers = {"Content-Type": "application/json"}
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
 
-        response_line = self._process.stdout.readline()
-        if not response_line:
-            raise RuntimeError("No response from MCP server")
+        response = await self._client.post(
+            f"{self._base_url}/mcp",
+            json=request,
+            headers=headers,
+        )
 
-        return json.loads(response_line)
+        if "Mcp-Session-Id" in response.headers:
+            self._session_id = response.headers["Mcp-Session-Id"]
+
+        return response.json()
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> MCPToolResult:
         """Call a tool on the MCP server.
@@ -152,12 +147,14 @@ class RAGMCPClient:
             content = result.get("content", [])
 
             if isinstance(content, list) and len(content) > 0:
-                text_content = content[0].get("text", "")
-                try:
-                    parsed_content = json.loads(text_content)
-                    return MCPToolResult(content=parsed_content)
-                except json.JSONDecodeError:
-                    return MCPToolResult(content=text_content)
+                text_item = next((c for c in content if c.get("type") == "text"), None)
+                if text_item:
+                    text_content = text_item.get("text", "")
+                    try:
+                        parsed_content = json.loads(text_content)
+                        return MCPToolResult(content=parsed_content)
+                    except json.JSONDecodeError:
+                        return MCPToolResult(content=text_content)
 
             return MCPToolResult(content=content)
 
@@ -177,7 +174,7 @@ class RAGMCPClient:
         Returns:
             RetrievalResult with chunks.
         """
-        with Timer(f"query_knowledge_hub: {query[:50]}...") as timer:
+        with Timer(f"query_knowledge_hub: {query[:50]}..."):
             result = await self.call_tool(
                 "query_knowledge_hub",
                 {
@@ -216,18 +213,23 @@ class RAGMCPClient:
         Returns:
             List of collection names.
         """
-        result = await self.call_tool("list_collections", {})
+        if not self._initialized:
+            await self.connect()
 
-        if result.is_error:
+        request = {
+            "jsonrpc": "2.0",
+            "id": self._next_request_id(),
+            "method": "tools/list",
+            "params": {},
+        }
+
+        try:
+            response = await self._send_request(request)
+            result = response.get("result", {})
+            tools = result.get("tools", [])
+            return [t.get("name") for t in tools if t.get("name")]
+        except Exception:
             return []
-
-        content = result.content
-        if isinstance(content, dict):
-            return content.get("collections", [])
-        elif isinstance(content, list):
-            return content
-
-        return []
 
     async def get_document_summary(
         self, doc_id: str, collection: Optional[str] = None
@@ -253,13 +255,13 @@ class RAGMCPClient:
 
     async def close(self) -> None:
         """Close the connection to the MCP server."""
-        if self._process:
-            self._process.terminate()
-            self._process.wait()
-            self._process = None
+        if self._client:
+            await self._client.aclose()
+            self._client = None
             self._initialized = False
+            self._session_id = None
 
-    async def __aenter__(self) -> "RAGMCPClient":
+    async def __aenter__(self) -> "HTTPMCPClient":
         """Async context manager entry."""
         await self.connect()
         return self
@@ -270,10 +272,7 @@ class RAGMCPClient:
 
 
 class MockRAGMCPClient:
-    """Mock MCP Client for testing without RAG server.
-
-    This client returns mock data for testing purposes.
-    """
+    """Mock MCP Client for testing without RAG server."""
 
     def __init__(self, config: RAGServerConfig):
         self.config = config
@@ -321,3 +320,18 @@ class MockRAGMCPClient:
 
     async def __aexit__(self, *args) -> None:
         pass
+
+
+def create_mcp_client(config: RAGServerConfig, use_mock: bool = False):
+    """Factory function to create MCP client.
+
+    Args:
+        config: RAG server configuration.
+        use_mock: If True, return mock client.
+
+    Returns:
+        MCP client instance.
+    """
+    if use_mock:
+        return MockRAGMCPClient(config)
+    return HTTPMCPClient(config)

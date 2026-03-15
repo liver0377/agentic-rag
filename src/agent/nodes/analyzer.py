@@ -8,12 +8,10 @@ Analyzes the user's query to determine:
 
 from __future__ import annotations
 
-import json
 import re
-from typing import Dict, Any
+from typing import Any, Dict
 
 from src.agent.state import AgentState
-from src.agent.prompts import get_prompt
 
 
 def analyze_query(query: str) -> Dict[str, Any]:

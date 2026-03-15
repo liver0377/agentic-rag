@@ -5,7 +5,7 @@ Generates the final response with citations.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from src.agent.state import AgentState
 from src.core.types import Chunk, Citation

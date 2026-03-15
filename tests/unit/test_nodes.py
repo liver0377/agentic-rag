@@ -76,6 +76,7 @@ class TestEvaluatorNode:
 
         assert result["is_sufficient"] is False
         assert "未检索到" in result["reason"]
+        assert result["score"] == 0.0
 
     def test_evaluate_low_score_chunks(self):
         """Test evaluating with low-score chunks."""
@@ -84,11 +85,43 @@ class TestEvaluatorNode:
         chunks = [
             Chunk(id="1", text="不相关内容", score=0.1, metadata={}),
             Chunk(id="2", text="另一个不相关内容", score=0.15, metadata={}),
+            Chunk(id="3", text="第三个内容", score=0.2, metadata={}),
         ]
 
-        result = evaluate_retrieval("测试问题", chunks)
+        result = evaluate_retrieval("测试问题", chunks, threshold=0.5)
 
         assert result["is_sufficient"] is False
+        assert result["score"] < 0.5
+
+    def test_evaluate_high_score_sufficient_chunks(self):
+        """Test evaluating with high-score and sufficient chunks."""
+        from src.core.types import Chunk
+
+        chunks = [
+            Chunk(id="1", text="相关内容1", score=0.85, metadata={}),
+            Chunk(id="2", text="相关内容2", score=0.90, metadata={}),
+            Chunk(id="3", text="相关内容3", score=0.88, metadata={}),
+            Chunk(id="4", text="相关内容4", score=0.82, metadata={}),
+        ]
+
+        result = evaluate_retrieval("测试问题", chunks, threshold=0.5)
+
+        assert result["is_sufficient"] is True
+        assert result["score"] >= 0.5
+
+    def test_evaluate_insufficient_chunk_count(self):
+        """Test evaluating with high-score but insufficient chunk count."""
+        from src.core.types import Chunk
+
+        chunks = [
+            Chunk(id="1", text="相关内容", score=0.90, metadata={}),
+            Chunk(id="2", text="另一个内容", score=0.85, metadata={}),
+        ]
+
+        result = evaluate_retrieval("测试问题", chunks, threshold=0.5)
+
+        assert result["is_sufficient"] is False
+        assert "数量不足" in result["reason"]
 
 
 class TestRewriterNode:

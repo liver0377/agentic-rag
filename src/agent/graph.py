@@ -5,17 +5,17 @@ This module defines the state machine that orchestrates the agent's behavior.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, Optional
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
-from src.agent.state import AgentState, create_initial_state
 from src.agent.nodes.analyzer import analyze_node, should_decompose
 from src.agent.nodes.decomposer import decompose_node
-from src.agent.nodes.retriever import retrieve_node_sync
 from src.agent.nodes.evaluator import evaluate_node, should_rewrite
-from src.agent.nodes.rewriter import rewrite_node
 from src.agent.nodes.generator import generate_node
+from src.agent.nodes.retriever import retrieve_node_sync
+from src.agent.nodes.rewriter import rewrite_node
+from src.agent.state import AgentState, create_initial_state
 
 
 def build_simple_graph() -> StateGraph:
@@ -140,7 +140,17 @@ def run_agent(query: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, 
     final_state = graph.invoke(initial_state)
 
     if isinstance(final_state, dict):
-        return final_state
+        return {
+            "query": final_state.get("original_query", query),
+            "response": final_state.get("final_response"),
+            "citations": final_state.get("citations", []),
+            "sub_queries": final_state.get("sub_queries", []),
+            "rewritten_query": final_state.get("rewritten_query"),
+            "decision_path": final_state.get("decision_path", []),
+            "total_chunks": len(final_state.get("chunks", [])),
+            "trace_id": final_state.get("trace_id"),
+            "error": final_state.get("error"),
+        }
 
     return final_state.to_output_dict()
 
@@ -210,6 +220,20 @@ class KnowledgeAssistant:
         """
         initial_state = create_initial_state(query, trace_id)
         final_state = self.graph.invoke(initial_state)
+
+        if isinstance(final_state, dict):
+            return {
+                "query": final_state.get("original_query", query),
+                "response": final_state.get("final_response"),
+                "citations": final_state.get("citations", []),
+                "sub_queries": final_state.get("sub_queries", []),
+                "rewritten_query": final_state.get("rewritten_query"),
+                "decision_path": final_state.get("decision_path", []),
+                "total_chunks": len(final_state.get("chunks", [])),
+                "trace_id": final_state.get("trace_id"),
+                "error": final_state.get("error"),
+            }
+
         return final_state.to_output_dict()
 
     def __call__(self, query: str) -> Dict[str, Any]:

@@ -2,8 +2,7 @@
 
 # RAG MCP Server 配置
 rag_server:
-  command: ["python", "-m", "src.mcp_server.server"]
-  working_dir: "../MODULAR-RAG-MCP-SERVER"
+  url: "http://127.0.0.1:8080"
   collection: "knowledge_hub"
   timeout: 60
 
@@ -36,3 +35,4 @@ ui:
   title: "企业知识助手"
   theme: "light"
   show_trace: true
+  port: 8502

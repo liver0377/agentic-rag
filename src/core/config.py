@@ -90,16 +90,14 @@ class AgentConfig:
 class RAGServerConfig:
     """RAG MCP Server connection configuration."""
 
-    command: List[str] = field(default_factory=lambda: ["python", "-m", "src.mcp_server.server"])
-    working_dir: Optional[str] = None
+    url: str = "http://127.0.0.1:8080"
     collection: str = "knowledge_hub"
     timeout: int = 60
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RAGServerConfig":
         return cls(
-            command=data.get("command", ["python", "-m", "src.mcp_server.server"]),
-            working_dir=data.get("working_dir"),
+            url=data.get("url", "http://127.0.0.1:8080"),
             collection=data.get("collection", "knowledge_hub"),
             timeout=data.get("timeout", 60),
         )
@@ -131,6 +129,7 @@ class UIConfig:
     title: str = "企业知识助手"
     theme: str = "light"
     show_trace: bool = True
+    port: int = 8502
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "UIConfig":
@@ -138,6 +137,7 @@ class UIConfig:
             title=data.get("title", "企业知识助手"),
             theme=data.get("theme", "light"),
             show_trace=data.get("show_trace", True),
+            port=data.get("port", 8502),
         )
 
 

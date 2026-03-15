@@ -11,6 +11,14 @@ def main():
     """Start the Streamlit UI."""
     ui_path = Path(__file__).parent.parent / "src" / "ui" / "app.py"
 
+    try:
+        from src.core.config import load_settings
+
+        settings = load_settings()
+        port = settings.ui.port
+    except Exception:
+        port = 8502
+
     subprocess.run(
         [
             sys.executable,
@@ -18,7 +26,7 @@ def main():
             "streamlit",
             "run",
             str(ui_path),
-            "--server.port=8501",
+            f"--server.port={port}",
             "--browser.gatherUsageStats=false",
         ]
     )
