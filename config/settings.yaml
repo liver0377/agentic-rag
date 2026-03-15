@@ -1,0 +1,38 @@
+# Agentic RAG Assistant - Configuration
+
+# RAG MCP Server 配置
+rag_server:
+  command: ["python", "-m", "src.mcp_server.server"]
+  working_dir: "../MODULAR-RAG-MCP-SERVER"
+  collection: "knowledge_hub"
+  timeout: 60
+
+# Agent 配置
+agent:
+  max_rewrite_attempts: 2
+  retrieval_top_k: 10
+  sufficiency_threshold: 0.5
+  enable_sub_query: true
+  enable_query_rewrite: true
+
+# LLM 配置
+llm:
+  provider: "deepseek"
+  model: "deepseek-chat"
+  api_key: "${DEEPSEEK_API_KEY}"
+  base_url: "https://api.deepseek.com/v1"
+  temperature: 0.0
+  max_tokens: 4096
+
+# LangFuse 配置
+langfuse:
+  enabled: false
+  public_key: "${LANGFUSE_PUBLIC_KEY}"
+  secret_key: "${LANGFUSE_SECRET_KEY}"
+  host: "https://cloud.langfuse.com"
+
+# Streamlit UI 配置
+ui:
+  title: "企业知识助手"
+  theme: "light"
+  show_trace: true
