@@ -424,8 +424,9 @@ class AgentState(TypedDict):
     """Agent 状态机状态。"""
     # 输入
     original_query: str
-    rewritten_query: Optional[str]
-    sub_queries: Annotated[List[str], add]
+    rewritten_query: Optional[str]           # 简单查询改写后的查询
+    sub_queries: Annotated[List[str], add]   # 分解后的子查询列表
+    rewritten_sub_queries: Optional[List[str]]  # 改写后的子查询列表
     
     # 检索结果
     chunks: Annotated[List[Chunk], add]
@@ -443,6 +444,54 @@ class AgentState(TypedDict):
     # 追踪
     trace_id: Optional[str]
     decision_path: Annotated[List[str], add]
+```
+
+#### 5.1.1 Rewrite 与 Decompose 的配合机制
+
+当复杂查询经过 decompose 分解后，rewrite 节点需要对**子查询列表**进行改写，而非简单地改写原始查询。
+
+**设计原理：**
+
+| 场景 | rewrite 行为 | 原因 |
+|------|-------------|------|
+| 简单查询 | 改写 `rewritten_query` | 单一查询，直接改写即可 |
+| 复杂查询（已分解） | 改写 `rewritten_sub_queries` | 保留分解粒度，针对性优化每个子查询 |
+
+**查询优先级（retriever 节点）：**
+
+```python
+def get_queries_for_retrieval(state: AgentState) -> List[str]:
+    """获取用于检索的查询列表。"""
+    # 优先级：改写后的子查询 > 原始子查询 > 改写后的查询 > 原始查询
+    if state.rewritten_sub_queries:
+        return state.rewritten_sub_queries
+    if state.sub_queries:
+        return state.sub_queries
+    if state.rewritten_query:
+        return [state.rewritten_query]
+    return [state.original_query]
+```
+
+**流程示例：**
+
+```
+原始查询: "机器学习和深度学习的区别以及各自的应用场景"
+    ↓
+analyze: 复杂查询 → decompose
+    ↓
+decompose: sub_queries = ["什么是机器学习", "什么是深度学习", "机器学习和深度学习的区别", "机器学习的应用场景", "深度学习的应用场景"]
+    ↓
+retrieve: 对每个子查询检索 → chunks
+    ↓
+evaluate: 不足 (avg_score=0.35)
+    ↓
+rewrite: rewritten_sub_queries = ["什么是机器学习 的详细信息", "什么是深度学习 的概念和定义", ...]
+    ↓
+retrieve: 使用改写后的子查询重新检索
+    ↓
+evaluate: 充分 (avg_score=0.68)
+    ↓
+generate: 生成最终回答
 ```
 
 ### 5.2 LangGraph 节点接口

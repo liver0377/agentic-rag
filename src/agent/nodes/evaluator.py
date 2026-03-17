@@ -19,6 +19,16 @@ from src.agent.state import AgentState
 from src.core.types import Chunk
 
 
+def _traced(func):
+    """Decorator to trace function with langfuse if available."""
+    try:
+        from langfuse import observe
+
+        return observe(name=func.__name__)(func)
+    except ImportError:
+        return func
+
+
 def evaluate_retrieval(query: str, chunks: List[Chunk], threshold: float = 0.5) -> Dict[str, Any]:
     """Evaluate if retrieval results are sufficient.
 
@@ -138,6 +148,7 @@ def evaluate_retrieval_with_llm(
         }
 
 
+@_traced
 def evaluate_node(
     state: AgentState, threshold: float = 0.5, llm_client: Any = None
 ) -> Dict[str, Any]:

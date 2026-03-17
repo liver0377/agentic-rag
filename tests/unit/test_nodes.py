@@ -134,6 +134,85 @@ class TestRewriterNode:
         assert result != "什么是机器学习"
         assert len(result) > 0
 
+    def test_rewrite_simple_query_via_node(self):
+        """Test rewriting a simple query via rewrite_node."""
+        from src.agent.nodes.rewriter import rewrite_node
+
+        state = create_initial_state("什么是机器学习")
+        state.evaluation_reason = "检索结果相关性较低"
+
+        result = rewrite_node(state)
+
+        assert "rewritten_query" in result
+        assert result["rewritten_query"] != "什么是机器学习"
+        assert result["rewrite_count"] == 1
+
+    def test_rewrite_sub_queries_via_node(self):
+        """Test rewriting sub-queries via rewrite_node."""
+        from src.agent.nodes.rewriter import rewrite_node
+
+        state = create_initial_state("机器学习和深度学习的区别")
+        state.sub_queries = ["什么是机器学习", "什么是深度学习", "机器学习和深度学习的区别"]
+        state.evaluation_reason = "检索结果相关性较低"
+
+        result = rewrite_node(state)
+
+        assert "rewritten_sub_queries" in result
+        assert len(result["rewritten_sub_queries"]) == 3
+        assert result["rewrite_count"] == 1
+
+    def test_rewrite_preserves_sub_queries_granularity(self):
+        """Test that rewrite preserves sub-queries granularity."""
+        from src.agent.nodes.rewriter import rewrite_sub_queries
+
+        sub_queries = ["什么是机器学习", "什么是深度学习"]
+        rewritten = rewrite_sub_queries(sub_queries, "检索结果相关性较低")
+
+        assert len(rewritten) == len(sub_queries)
+        for original, new in zip(sub_queries, rewritten):
+            assert new != original
+
+
+class TestAgentStateQueries:
+    """Tests for agent state query retrieval methods."""
+
+    def test_get_queries_for_retrieval_original(self):
+        """Test getting queries when only original_query exists."""
+        state = create_initial_state("什么是机器学习")
+
+        queries = state.get_queries_for_retrieval()
+
+        assert queries == ["什么是机器学习"]
+
+    def test_get_queries_for_retrieval_rewritten(self):
+        """Test getting queries when rewritten_query exists."""
+        state = create_initial_state("什么是机器学习")
+        state.rewritten_query = "什么是机器学习 的详细信息"
+
+        queries = state.get_queries_for_retrieval()
+
+        assert queries == ["什么是机器学习 的详细信息"]
+
+    def test_get_queries_for_retrieval_sub_queries(self):
+        """Test getting queries when sub_queries exist."""
+        state = create_initial_state("机器学习和深度学习的区别")
+        state.sub_queries = ["什么是机器学习", "什么是深度学习"]
+
+        queries = state.get_queries_for_retrieval()
+
+        assert queries == ["什么是机器学习", "什么是深度学习"]
+
+    def test_get_queries_for_retrieval_rewritten_sub_queries_priority(self):
+        """Test that rewritten_sub_queries has highest priority."""
+        state = create_initial_state("机器学习和深度学习的区别")
+        state.sub_queries = ["什么是机器学习", "什么是深度学习"]
+        state.rewritten_query = "机器学习 相关内容"
+        state.rewritten_sub_queries = ["什么是机器学习 的详细说明", "什么是深度学习 的概念"]
+
+        queries = state.get_queries_for_retrieval()
+
+        assert queries == ["什么是机器学习 的详细说明", "什么是深度学习 的概念"]
+
 
 class TestAgentState:
     """Tests for agent state."""
@@ -152,3 +231,32 @@ class TestAgentState:
         state.add_decision("test_decision")
 
         assert "test_decision" in state.decision_path
+
+
+class TestConfigIntegration:
+    """Tests for configuration integration."""
+
+    def test_settings_load_sufficiency_threshold(self):
+        """Test that settings loads sufficiency_threshold from config."""
+        from src.core.config import load_settings
+
+        settings = load_settings()
+
+        assert hasattr(settings.agent, "sufficiency_threshold")
+        assert settings.agent.sufficiency_threshold == 0.5
+
+    def test_knowledge_assistant_uses_config_threshold(self):
+        """Test that KnowledgeAssistant uses threshold from settings."""
+        from src.agent.graph import KnowledgeAssistant
+
+        assistant = KnowledgeAssistant(use_llm=False)
+
+        assert assistant.sufficiency_threshold == 0.5
+
+    def test_knowledge_assistant_threshold_override(self):
+        """Test that threshold can be overridden."""
+        from src.agent.graph import KnowledgeAssistant
+
+        assistant = KnowledgeAssistant(sufficiency_threshold=0.8, use_llm=False)
+
+        assert assistant.sufficiency_threshold == 0.8

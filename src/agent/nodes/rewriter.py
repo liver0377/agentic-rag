@@ -1,6 +1,9 @@
 """Query Rewriter Node.
 
 Rewrites the query to improve retrieval results.
+
+When the query has been decomposed into sub-queries, this node rewrites
+each sub-query individually to preserve the semantic granularity.
 """
 
 from __future__ import annotations
@@ -8,6 +11,16 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from src.agent.state import AgentState
+
+
+def _traced(func):
+    """Decorator to trace function with langfuse if available."""
+    try:
+        from langfuse import observe
+
+        return observe(name=func.__name__)(func)
+    except ImportError:
+        return func
 
 
 def rewrite_query(
@@ -100,37 +113,98 @@ def rewrite_query_with_llm(
         return rewrite_query(original_query, evaluation_reason, previous_rewrites)
 
 
+def rewrite_sub_queries(
+    sub_queries: List[str],
+    evaluation_reason: str,
+    previous_rewrites: Optional[List[List[str]]] = None,
+    llm_client: Any = None,
+) -> List[str]:
+    """Rewrite each sub-query for better retrieval.
+
+    Args:
+        sub_queries: List of sub-queries to rewrite.
+        evaluation_reason: Reason for insufficient results.
+        previous_rewrites: Previously attempted rewrites (list of lists).
+        llm_client: LLM client instance.
+
+    Returns:
+        List of rewritten sub-queries.
+    """
+    previous_rewrites = previous_rewrites or []
+    previous_flat = [q for sublist in previous_rewrites for q in sublist]
+
+    rewritten_sub_queries = []
+    for i, sq in enumerate(sub_queries):
+        sub_previous = (
+            [
+                previous_rewrites[j][i]
+                for j in range(len(previous_rewrites))
+                if i < len(previous_rewrites[j])
+            ]
+            if previous_rewrites
+            else []
+        )
+        rewritten = rewrite_query_with_llm(
+            sq, evaluation_reason, sub_previous + previous_flat, llm_client
+        )
+        rewritten_sub_queries.append(rewritten)
+
+    return rewritten_sub_queries
+
+
+@_traced
 def rewrite_node(state: AgentState, llm_client: Any = None) -> Dict[str, Any]:
     """Rewrite the query for better retrieval.
 
     This node:
-    1. Analyzes why retrieval was insufficient
-    2. Applies rewrite strategies (with LLM if available)
-    3. Returns rewritten query for another retrieval attempt
+    1. Checks if sub-queries exist (from decomposition)
+    2. If sub-queries exist, rewrites each sub-query individually
+    3. If no sub-queries, rewrites the single query
+    4. Returns rewritten queries for another retrieval attempt
 
     Args:
         state: Current agent state.
         llm_client: LLM client (injected).
 
     Returns:
-        State updates with rewritten query.
+        State updates with rewritten query or rewritten sub-queries.
     """
-    original_query = state.original_query
     evaluation_reason = state.evaluation_reason or ""
-
-    previous_rewrites = []
-    if state.rewritten_query:
-        previous_rewrites.append(state.rewritten_query)
-
-    rewritten = rewrite_query_with_llm(
-        original_query, evaluation_reason, previous_rewrites, llm_client
-    )
-
     new_count = state.rewrite_count + 1
-    decision = f"rewrite (attempt {new_count}): '{original_query[:30]}...' -> '{rewritten[:30]}...'"
 
-    return {
-        "rewritten_query": rewritten,
-        "rewrite_count": new_count,
-        "decision_path": [decision],
-    }
+    if state.sub_queries:
+        previous_rewrites = []
+        if state.rewritten_sub_queries:
+            previous_rewrites.append(state.rewritten_sub_queries)
+
+        rewritten_subs = rewrite_sub_queries(
+            state.sub_queries, evaluation_reason, previous_rewrites, llm_client
+        )
+
+        decision = f"rewrite (attempt {new_count}): {len(rewritten_subs)} sub-queries rewritten"
+
+        return {
+            "rewritten_sub_queries": rewritten_subs,
+            "rewrite_count": new_count,
+            "decision_path": [decision],
+        }
+    else:
+        original_query = state.original_query
+
+        previous_rewrites = []
+        if state.rewritten_query:
+            previous_rewrites.append(state.rewritten_query)
+
+        rewritten = rewrite_query_with_llm(
+            original_query, evaluation_reason, previous_rewrites, llm_client
+        )
+
+        decision = (
+            f"rewrite (attempt {new_count}): '{original_query[:30]}...' -> '{rewritten[:30]}...'"
+        )
+
+        return {
+            "rewritten_query": rewritten,
+            "rewrite_count": new_count,
+            "decision_path": [decision],
+        }

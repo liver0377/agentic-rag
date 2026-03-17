@@ -28,7 +28,7 @@ langfuse:
   enabled: true
   public_key: "${LANGFUSE_PUBLIC_KEY}"
   secret_key: "${LANGFUSE_SECRET_KEY}"
-  host: "https://cloud.langfuse.com"
+  host: "https://us.cloud.langfuse.com"
 
 # Streamlit UI 配置
 ui:

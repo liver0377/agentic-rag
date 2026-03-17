@@ -11,6 +11,16 @@ from typing import Any, Dict, List
 from src.agent.state import AgentState
 
 
+def _traced(func):
+    """Decorator to trace function with langfuse if available."""
+    try:
+        from langfuse import observe
+
+        return observe(name=func.__name__)(func)
+    except ImportError:
+        return func
+
+
 def decompose_query_by_rule(query: str) -> List[str]:
     """Decompose a complex query using rule-based approach.
 
@@ -99,6 +109,7 @@ def decompose_query_with_llm(query: str, llm_client: Any = None) -> List[str]:
         return decompose_query_by_rule(query)
 
 
+@_traced
 def decompose_node(state: AgentState, llm_client: Any = None) -> Dict[str, Any]:
     """Decompose complex query into sub-queries.
 

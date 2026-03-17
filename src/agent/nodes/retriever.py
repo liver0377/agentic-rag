@@ -14,6 +14,16 @@ from src.core.utils import Timer
 from src.mcp_client.tools import RAGTools
 
 
+def _traced(func):
+    """Decorator to trace function with langfuse if available."""
+    try:
+        from langfuse import observe
+
+        return observe(name=func.__name__)(func)
+    except ImportError:
+        return func
+
+
 async def retrieve_from_rag(query: str, rag_tools: RAGTools, top_k: int = 10) -> List[Chunk]:
     """Retrieve chunks from RAG server.
 
@@ -39,9 +49,9 @@ async def retrieve_node(
     """Retrieve chunks for the query.
 
     This node:
-    1. Gets the current query (original or rewritten)
-    2. Retrieves chunks from RAG server
-    3. If sub-queries exist, retrieves for each
+    1. Gets queries for retrieval (priority: rewritten_sub_queries > sub_queries > rewritten_query > original_query)
+    2. Retrieves chunks from RAG server for each query
+    3. Merges and deduplicates results
 
     Args:
         state: Current agent state.
@@ -59,7 +69,7 @@ async def retrieve_node(
 
     all_chunks: List[Chunk] = []
 
-    queries = state.sub_queries if state.sub_queries else [state.get_current_query()]
+    queries = state.get_queries_for_retrieval()
 
     for query in queries:
         chunks = await retrieve_from_rag(query, rag_tools, top_k)
@@ -88,6 +98,7 @@ async def retrieve_node(
     }
 
 
+@_traced
 def retrieve_node_sync(
     state: AgentState, rag_tools: Optional[RAGTools] = None, top_k: int = 10
 ) -> Dict[str, Any]:

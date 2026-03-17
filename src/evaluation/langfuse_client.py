@@ -59,6 +59,7 @@ class LangFuseTracer:
         self.enabled = config.enabled
         self._client = None
         self._trace_url: Optional[str] = None
+        self._trace_id: Optional[str] = None
 
     def init(self) -> None:
         """Initialize LangFuse client."""
@@ -73,9 +74,9 @@ class LangFuseTracer:
             if self.config.host:
                 os.environ["LANGFUSE_HOST"] = self.config.host
 
-            from langfuse import get_client
+            from langfuse import Langfuse
 
-            self._client = get_client()
+            self._client = Langfuse()
         except ImportError:
             print("Warning: langfuse package not installed. Tracing disabled.")
             self.enabled = False
@@ -98,6 +99,7 @@ class LangFuseTracer:
         """
         span = Span(name=name, start_time=datetime.now(), metadata=metadata or {})
         self._trace_url = None
+        self._trace_id = None
 
         if not self.enabled or not self._client:
             try:
@@ -110,12 +112,14 @@ class LangFuseTracer:
             with self._client.start_as_current_observation(
                 as_type="span", name=name, metadata=metadata or {}
             ) as observation:
+                self._trace_id = observation.trace_id
                 try:
                     yield span
                 finally:
                     span.end_time = datetime.now()
 
-            self._trace_url = self._client.get_trace_url()
+            if self._trace_id:
+                self._trace_url = f"{self.config.host}/trace/{self._trace_id}"
         except Exception as e:
             print(f"Warning: Trace failed: {e}")
             yield span
@@ -230,6 +234,14 @@ class LangFuseTracer:
             Trace URL or None.
         """
         return self._trace_url
+
+    def get_trace_id(self) -> Optional[str]:
+        """Get the trace ID.
+
+        Returns:
+            Trace ID or None.
+        """
+        return self._trace_id
 
     def flush(self) -> None:
         """Flush pending traces."""

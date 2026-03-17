@@ -14,6 +14,16 @@ from typing import Any, Dict
 from src.agent.state import AgentState
 
 
+def _traced(func):
+    """Decorator to trace function with langfuse if available."""
+    try:
+        from langfuse import observe
+
+        return observe(name=func.__name__)(func)
+    except ImportError:
+        return func
+
+
 def analyze_query(query: str) -> Dict[str, Any]:
     """Analyze query characteristics.
 
@@ -77,6 +87,7 @@ def analyze_query(query: str) -> Dict[str, Any]:
     }
 
 
+@_traced
 def analyze_node(state: AgentState) -> Dict[str, Any]:
     """Analyze the query and determine next steps.
 

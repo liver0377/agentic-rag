@@ -11,6 +11,16 @@ from src.agent.state import AgentState
 from src.core.types import Chunk, Citation
 
 
+def _traced(func):
+    """Decorator to trace function with langfuse if available."""
+    try:
+        from langfuse import observe
+
+        return observe(name=func.__name__)(func)
+    except ImportError:
+        return func
+
+
 def format_chunks_for_generation(chunks: List[Chunk], max_length: int = 4000) -> str:
     """Format chunks for LLM generation.
 
@@ -109,6 +119,7 @@ def extract_citations(chunks: List[Chunk]) -> List[Dict[str, Any]]:
     return citations
 
 
+@_traced
 def generate_node(state: AgentState, llm_client: Any = None) -> Dict[str, Any]:
     """Generate the final response.
 

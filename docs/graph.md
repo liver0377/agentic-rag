@@ -248,14 +248,32 @@ def evaluate_retrieval(chunks, threshold=0.5):
 
 **输入：**
 - `original_query`: 原始查询
+- `sub_queries`: 子查询列表（可选，来自 decompose）
 - `evaluation_reason`: 评估原因
 - `rewrite_count`: 当前改写次数
 
 **输出：**
-- `rewritten_query`: 改写后的查询
+- `rewritten_query`: 改写后的查询（简单查询场景）
+- `rewritten_sub_queries`: 改写后的子查询列表（复杂查询场景）
 - `rewrite_count`: 更新后的改写次数
 
-**改写策略：**
+#### 2.5.1 Rewrite 与 Decompose 的配合
+
+当复杂查询经过 decompose 分解后，rewrite 节点需要对**每个子查询**进行针对性改写，而非简单改写原始查询。
+
+**设计原理：**
+
+| 场景 | rewrite 行为 | 查询优先级 |
+|------|-------------|-----------|
+| 简单查询 | 改写 `rewritten_query` | `rewritten_query` > `original_query` |
+| 复杂查询（已分解） | 改写 `rewritten_sub_queries` | `rewritten_sub_queries` > `sub_queries` |
+
+**原因：**
+1. **保留分解粒度**：分解后的子查询语义更精确，不应退化为单一查询
+2. **针对性优化**：每个子查询可以独立应用不同改写策略
+3. **与 decompose 设计一致**：分解的价值不应被 rewrite 抹消
+
+#### 2.5.2 改写策略
 
 | 问题类型 | 改写策略 |
 |----------|----------|
@@ -264,12 +282,40 @@ def evaluate_retrieval(chunks, threshold=0.5):
 | 匹配度较低 | 添加"定义"、"概念"，或改为"什么是X" |
 | 通用策略 | 添加"相关内容"、"详细信息" |
 
-**示例：**
+#### 2.5.3 示例
+
+**简单查询改写：**
+
 | 原始查询 | 改写结果 |
 |----------|----------|
 | "机器学习" | "机器学习 的详细信息" |
 | "如何部署" | "部署的步骤和方法" |
-| "RAG" | "什么是RAG" |
+
+**复杂查询改写（已分解）：**
+
+| 子查询列表 | 改写后的子查询列表 |
+|------------|-------------------|
+| ["什么是机器学习", "什么是深度学习", "机器学习和深度学习的区别"] | ["什么是机器学习 的详细说明", "什么是深度学习 的概念和定义", "机器学习和深度学习的区别 详细对比"] |
+
+#### 2.5.4 流程示例
+
+```
+原始查询: "机器学习和深度学习的区别以及各自的应用场景"
+    ↓
+analyze: 复杂查询 → decompose
+    ↓
+decompose: sub_queries = ["什么是机器学习", "什么是深度学习", ...]
+    ↓
+retrieve: 对每个子查询检索 → chunks
+    ↓
+evaluate: 不足 (avg_score=0.35)
+    ↓
+rewrite: 对每个子查询分别改写 → rewritten_sub_queries
+    ↓
+retrieve: 使用改写后的子查询重新检索
+    ↓
+evaluate: 充分 → generate
+```
 
 **限制：** 最多重试 2 次（可配置）
 

@@ -41,8 +41,9 @@ class AgentState:
 
     Attributes:
         original_query: The user's original question.
-        rewritten_query: The rewritten query (if any).
+        rewritten_query: The rewritten query (if any) - for simple queries.
         sub_queries: List of decomposed sub-queries.
+        rewritten_sub_queries: List of rewritten sub-queries (after rewrite on decomposed queries).
         chunks: Retrieved chunks from RAG server.
         retrieval_score: Score indicating retrieval quality.
         is_sufficient: Whether retrieved chunks are sufficient.
@@ -59,6 +60,7 @@ class AgentState:
     original_query: str = ""
     rewritten_query: Optional[str] = None
     sub_queries: Annotated[List[str], reduce_strings] = field(default_factory=list)
+    rewritten_sub_queries: Optional[List[str]] = None
     chunks: Annotated[List[Chunk], reduce_chunks] = field(default_factory=list)
     retrieval_score: Optional[float] = None
     is_sufficient: Optional[bool] = None
@@ -76,8 +78,24 @@ class AgentState:
         self.decision_path = self.decision_path + [decision]
 
     def get_current_query(self) -> str:
-        """Get the current query to use for retrieval."""
+        """Get the current query to use for retrieval (for simple queries)."""
         return self.rewritten_query or self.original_query
+
+    def get_queries_for_retrieval(self) -> List[str]:
+        """Get the queries to use for retrieval.
+
+        Priority: rewritten_sub_queries > sub_queries > rewritten_query > original_query
+
+        Returns:
+            List of queries to retrieve.
+        """
+        if self.rewritten_sub_queries:
+            return self.rewritten_sub_queries
+        if self.sub_queries:
+            return self.sub_queries
+        if self.rewritten_query:
+            return [self.rewritten_query]
+        return [self.original_query]
 
     def to_output_dict(self) -> Dict[str, Any]:
         """Convert to output dictionary."""
@@ -87,6 +105,7 @@ class AgentState:
             "citations": self.citations,
             "sub_queries": self.sub_queries,
             "rewritten_query": self.rewritten_query,
+            "rewritten_sub_queries": self.rewritten_sub_queries,
             "decision_path": self.decision_path,
             "total_chunks": len(self.chunks),
             "trace_id": self.trace_id,
