@@ -203,9 +203,80 @@ class HTTPMCPClient:
                 total_count=len(chunks),
             )
 
+        if isinstance(content, str):
+            chunks = self._parse_markdown_chunks(content, query)
+            return RetrievalResult(
+                chunks=chunks,
+                collection=collection or self.config.collection,
+                query=query,
+                total_count=len(chunks),
+            )
+
         return RetrievalResult(
             chunks=[], collection=collection or self.config.collection, query=query, total_count=0
         )
+
+    def _parse_markdown_chunks(self, markdown_text: str, query: str) -> List[Chunk]:
+        """Parse chunks from MCP server's markdown response.
+
+        Args:
+            markdown_text: The markdown text from the server.
+            query: The original query.
+
+        Returns:
+            List of Chunk objects.
+        """
+        import re
+
+        chunks = []
+        pattern = r"###\s*\[(\d+)\]\s*[^>]*?\n\*\*[^*]*:\*\*\s*([\d.]+)%\n\*\*[^*]*:\*\*\s*`([^`]+)`\n\n>\s*([^\n]+(?:\n(?![>#\[])[^\n]+)*)"
+
+        matches = re.findall(pattern, markdown_text, re.MULTILINE)
+
+        for i, match in enumerate(matches):
+            idx, score_str, source, text = match
+            try:
+                score = float(score_str) / 100.0
+            except ValueError:
+                score = 0.5
+
+            chunk = Chunk(
+                id=f"chunk_{idx}",
+                text=text.strip(),
+                score=score,
+                metadata={
+                    "source_path": source,
+                    "index": int(idx) - 1,
+                },
+            )
+            chunks.append(chunk)
+
+        if not chunks:
+            sections = re.split(r"###\s*\[\d+\]", markdown_text)
+            for i, section in enumerate(sections[1:], 1):
+                lines = section.strip().split("\n")
+                text_lines = []
+                source = f"doc_{i}.pdf"
+                score = 0.5 - (i - 1) * 0.1
+
+                for line in lines:
+                    if line.startswith(">"):
+                        text_lines.append(line[1:].strip())
+                    elif line.startswith("**") and "源" in line:
+                        source_match = re.search(r"`([^`]+)`", line)
+                        if source_match:
+                            source = source_match.group(1)
+
+                if text_lines:
+                    chunk = Chunk(
+                        id=f"chunk_{i}",
+                        text=" ".join(text_lines),
+                        score=max(0.1, score),
+                        metadata={"source_path": source},
+                    )
+                    chunks.append(chunk)
+
+        return chunks
 
     async def list_collections(self) -> List[str]:
         """List available collections.

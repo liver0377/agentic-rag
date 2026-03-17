@@ -3,7 +3,7 @@
 # RAG MCP Server 配置
 rag_server:
   url: "http://127.0.0.1:8080"
-  collection: "knowledge_hub"
+  collection: "knowledge_lib"
   timeout: 60
 
 # Agent 配置
@@ -25,7 +25,7 @@ llm:
 
 # LangFuse 配置
 langfuse:
-  enabled: false
+  enabled: true
   public_key: "${LANGFUSE_PUBLIC_KEY}"
   secret_key: "${LANGFUSE_SECRET_KEY}"
   host: "https://cloud.langfuse.com"

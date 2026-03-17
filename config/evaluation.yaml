@@ -1,0 +1,17 @@
+evaluation:
+  metrics:
+    - faithfulness
+    - answer_relevancy
+    - context_precision
+  
+  thresholds:
+    faithfulness: 0.7
+    answer_relevancy: 0.7
+    context_precision: 0.6
+  
+  output_dir: eval_reports
+  
+  langfuse_collection:
+    enabled: true
+    default_days: 7
+    default_limit: 100

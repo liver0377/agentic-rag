@@ -5,6 +5,7 @@ This module defines the state machine that orchestrates the agent's behavior.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, Dict, Optional
 
 from langgraph.graph import END, StateGraph
@@ -16,9 +17,12 @@ from src.agent.nodes.generator import generate_node
 from src.agent.nodes.retriever import retrieve_node_sync
 from src.agent.nodes.rewriter import rewrite_node
 from src.agent.state import AgentState, create_initial_state
+from src.core.config import Settings, load_settings
+from src.core.llm_client import LLMClient, create_llm_client
+from src.evaluation.langfuse_client import LangFuseTracer, init_langfuse
 
 
-def build_simple_graph() -> StateGraph:
+def build_simple_graph(llm_client: Optional[LLMClient] = None) -> StateGraph:
     """Build a simple linear graph for basic RAG flow.
 
     This is a simplified version without decomposition and rewrite loops.
@@ -27,6 +31,9 @@ def build_simple_graph() -> StateGraph:
     Flow:
         START -> analyze -> retrieve -> evaluate -> generate -> END
 
+    Args:
+        llm_client: Optional LLM client for generation.
+
     Returns:
         Compiled StateGraph.
     """
@@ -34,8 +41,8 @@ def build_simple_graph() -> StateGraph:
 
     builder.add_node("analyze", analyze_node)
     builder.add_node("retrieve", retrieve_node_sync)
-    builder.add_node("evaluate", evaluate_node)
-    builder.add_node("generate", generate_node)
+    builder.add_node("evaluate", partial(evaluate_node, llm_client=llm_client))
+    builder.add_node("generate", partial(generate_node, llm_client=llm_client))
 
     builder.set_entry_point("analyze")
     builder.add_edge("analyze", "retrieve")
@@ -47,7 +54,10 @@ def build_simple_graph() -> StateGraph:
 
 
 def build_agent_graph(
-    enable_decomposition: bool = True, enable_rewrite: bool = True, max_rewrite_attempts: int = 2
+    enable_decomposition: bool = True,
+    enable_rewrite: bool = True,
+    max_rewrite_attempts: int = 2,
+    llm_client: Optional[LLMClient] = None,
 ) -> StateGraph:
     """Build the full agent graph with conditional branches.
 
@@ -64,6 +74,7 @@ def build_agent_graph(
         enable_decomposition: Enable query decomposition.
         enable_rewrite: Enable query rewriting.
         max_rewrite_attempts: Maximum rewrite attempts.
+        llm_client: Optional LLM client for LLM-based operations.
 
     Returns:
         Compiled StateGraph.
@@ -71,11 +82,11 @@ def build_agent_graph(
     builder = StateGraph(AgentState)
 
     builder.add_node("analyze", analyze_node)
-    builder.add_node("decompose", decompose_node)
+    builder.add_node("decompose", partial(decompose_node, llm_client=llm_client))
     builder.add_node("retrieve", retrieve_node_sync)
-    builder.add_node("evaluate", evaluate_node)
-    builder.add_node("rewrite", rewrite_node)
-    builder.add_node("generate", generate_node)
+    builder.add_node("evaluate", partial(evaluate_node, llm_client=llm_client))
+    builder.add_node("rewrite", partial(rewrite_node, llm_client=llm_client))
+    builder.add_node("generate", partial(generate_node, llm_client=llm_client))
 
     builder.set_entry_point("analyze")
 
@@ -128,11 +139,15 @@ def run_agent(query: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, 
     enable_decomposition = config.get("enable_decomposition", True)
     enable_rewrite = config.get("enable_rewrite", True)
     max_rewrite_attempts = config.get("max_rewrite_attempts", 2)
+    use_llm = config.get("use_llm", True)
+
+    llm_client = create_llm_client() if use_llm else None
 
     graph = build_agent_graph(
         enable_decomposition=enable_decomposition,
         enable_rewrite=enable_rewrite,
         max_rewrite_attempts=max_rewrite_attempts,
+        llm_client=llm_client,
     )
 
     initial_state = create_initial_state(query)
@@ -184,6 +199,9 @@ class KnowledgeAssistant:
         enable_decomposition: bool = True,
         enable_rewrite: bool = True,
         max_rewrite_attempts: int = 2,
+        llm_client: Optional[LLMClient] = None,
+        use_llm: bool = True,
+        settings: Optional[Settings] = None,
     ):
         """Initialize the knowledge assistant.
 
@@ -191,11 +209,32 @@ class KnowledgeAssistant:
             enable_decomposition: Enable query decomposition.
             enable_rewrite: Enable query rewriting.
             max_rewrite_attempts: Maximum rewrite attempts.
+            llm_client: Optional LLM client instance.
+            use_llm: Whether to use LLM for operations.
+            settings: Optional settings object.
         """
         self.enable_decomposition = enable_decomposition
         self.enable_rewrite = enable_rewrite
         self.max_rewrite_attempts = max_rewrite_attempts
+        self.use_llm = use_llm
+
+        if settings is not None:
+            self._settings = settings
+        else:
+            self._settings = load_settings()
+
+        if llm_client is not None:
+            self._llm_client = llm_client
+        elif use_llm:
+            self._llm_client = create_llm_client()
+        else:
+            self._llm_client = None
+
         self._graph = None
+        self._tracer: Optional[LangFuseTracer] = None
+
+        if self._settings.langfuse.enabled:
+            self._tracer = init_langfuse(self._settings.langfuse)
 
     @property
     def graph(self):
@@ -205,6 +244,7 @@ class KnowledgeAssistant:
                 enable_decomposition=self.enable_decomposition,
                 enable_rewrite=self.enable_rewrite,
                 max_rewrite_attempts=self.max_rewrite_attempts,
+                llm_client=self._llm_client,
             )
         return self._graph
 
@@ -219,7 +259,12 @@ class KnowledgeAssistant:
             Agent output dictionary.
         """
         initial_state = create_initial_state(query, trace_id)
-        final_state = self.graph.invoke(initial_state)
+
+        if self._tracer:
+            with self._tracer.trace(name="agent_query", metadata={"query": query}):
+                final_state = self.graph.invoke(initial_state)
+        else:
+            final_state = self.graph.invoke(initial_state)
 
         if isinstance(final_state, dict):
             return {

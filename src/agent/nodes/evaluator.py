@@ -61,17 +61,97 @@ def evaluate_retrieval(query: str, chunks: List[Chunk], threshold: float = 0.5) 
     }
 
 
-def evaluate_node(state: AgentState, threshold: float = 0.5) -> Dict[str, Any]:
+def evaluate_retrieval_with_llm(
+    query: str, chunks: List[Chunk], llm_client: Any = None
+) -> Dict[str, Any]:
+    """Evaluate retrieval results using LLM.
+
+    Args:
+        query: The original query.
+        chunks: Retrieved chunks with scores from RAG.
+        llm_client: LLM client instance.
+
+    Returns:
+        Evaluation result with is_sufficient, reason and suggestions.
+    """
+    if not chunks:
+        return {
+            "is_sufficient": False,
+            "reason": "未检索到任何相关文档",
+            "score": 0.0,
+        }
+
+    if llm_client is None:
+        avg_score = sum(c.score for c in chunks[:5]) / min(5, len(chunks))
+        return {
+            "is_sufficient": avg_score >= 0.5 and len(chunks) >= 3,
+            "reason": f"检索结果相关性: {avg_score:.2f}",
+            "score": avg_score,
+        }
+
+    context = "\n\n".join(
+        [
+            f"[文档{i + 1}]\n{c.text[:500]}..." if len(c.text) > 500 else f"[文档{i + 1}]\n{c.text}"
+            for i, c in enumerate(chunks[:5])
+        ]
+    )
+
+    prompt = f"""请评估以下检索到的文档是否能充分回答用户的问题。
+
+用户问题：{query}
+
+检索到的文档：
+{context}
+
+请从以下方面评估：
+1. 文档内容是否与问题相关
+2. 信息是否足够完整
+3. 是否需要补充其他信息
+
+请以JSON格式返回评估结果：
+{{
+    "is_sufficient": true/false,
+    "relevance_score": 0.0-1.0,
+    "reason": "评估原因",
+    "missing_aspects": ["缺失的方面1", "缺失的方面2"]
+}}
+
+只返回JSON，不要其他内容："""
+
+    try:
+        response = llm_client.chat(prompt)
+        import json
+
+        result = json.loads(response.strip().strip("```json").strip("```"))
+        return {
+            "is_sufficient": result.get("is_sufficient", False),
+            "reason": result.get("reason", ""),
+            "score": result.get("relevance_score", 0.0),
+            "missing_aspects": result.get("missing_aspects", []),
+        }
+    except Exception:
+        avg_score = sum(c.score for c in chunks[:5]) / min(5, len(chunks))
+        return {
+            "is_sufficient": avg_score >= 0.5 and len(chunks) >= 3,
+            "reason": f"LLM评估失败，使用规则评估: {avg_score:.2f}",
+            "score": avg_score,
+        }
+
+
+def evaluate_node(
+    state: AgentState, threshold: float = 0.5, llm_client: Any = None
+) -> Dict[str, Any]:
     """Evaluate retrieval results.
 
     This node:
-    1. Checks if retrieved chunks are relevant (based on RAG scores)
+    1. Checks if retrieved chunks are relevant (based on RAG scores or LLM)
     2. Determines if query should be rewritten
     3. Updates evaluation result in state
 
     Args:
         state: Current agent state.
         threshold: Minimum score threshold.
+        llm_client: LLM client (injected).
 
     Returns:
         State updates with evaluation results.
@@ -79,7 +159,10 @@ def evaluate_node(state: AgentState, threshold: float = 0.5) -> Dict[str, Any]:
     query = state.original_query
     chunks = state.chunks
 
-    evaluation = evaluate_retrieval(query, chunks, threshold)
+    if llm_client is not None:
+        evaluation = evaluate_retrieval_with_llm(query, chunks, llm_client)
+    else:
+        evaluation = evaluate_retrieval(query, chunks, threshold)
 
     decision = f"evaluate: {'sufficient' if evaluation['is_sufficient'] else 'insufficient'} (score={evaluation['score']:.2f})"
 

@@ -5,6 +5,7 @@ Retrieves relevant chunks from the RAG MCP Server.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from src.agent.state import AgentState
@@ -87,33 +88,24 @@ async def retrieve_node(
     }
 
 
-def retrieve_node_sync(state: AgentState) -> Dict[str, Any]:
-    """Synchronous version of retrieve node for simple graph.
+def retrieve_node_sync(
+    state: AgentState, rag_tools: Optional[RAGTools] = None, top_k: int = 10
+) -> Dict[str, Any]:
+    """Synchronous version of retrieve node.
 
     Args:
         state: Current agent state.
+        rag_tools: RAG tools client (injected).
+        top_k: Number of results.
 
     Returns:
-        State updates with mock chunks.
+        State updates with retrieved chunks.
     """
-    query = state.get_current_query()
+    return asyncio.run(_retrieve_node_async_wrapper(state, rag_tools, top_k))
 
-    mock_chunks = [
-        Chunk(
-            id=f"mock_{i}",
-            text=f"这是关于 '{query}' 的模拟检索结果 {i + 1}。",
-            score=0.9 - i * 0.15,
-            metadata={"source_path": f"doc_{i}.pdf", "page_num": i + 1},
-        )
-        for i in range(5)
-    ]
 
-    avg_score = sum(c.score for c in mock_chunks) / len(mock_chunks)
-
-    decision = f"retrieve: {len(mock_chunks)} chunks, avg_score={avg_score:.2f}"
-
-    return {
-        "chunks": mock_chunks,
-        "retrieval_score": avg_score,
-        "decision_path": [decision],
-    }
+async def _retrieve_node_async_wrapper(
+    state: AgentState, rag_tools: Optional[RAGTools], top_k: int
+) -> Dict[str, Any]:
+    """Async wrapper for retrieve_node."""
+    return await retrieve_node(state, rag_tools, top_k)

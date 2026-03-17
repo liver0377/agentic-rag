@@ -355,7 +355,8 @@ agentic-rag-assistant/
 │   ├── evaluation/               # 评估模块
 │   │   ├── __init__.py
 │   │   ├── langfuse_client.py    # LangFuse 集成
-│   │   ├── ragas_evaluator.py    # RAGAS 评估
+│   │   ├── ragas_evaluator.py    # Ragas 评估器
+│   │   ├── data_collector.py     # 数据收集器
 │   │   └── metrics.py            # 自定义指标
 │   │
 │   └── core/                     # 基础设施
@@ -366,11 +367,20 @@ agentic-rag-assistant/
 │
 ├── config/
 │   ├── settings.yaml             # 主配置文件
+│   ├── evaluation.yaml           # 评估配置
 │   └── prompts/                  # Prompt 文件
 │       ├── analyze.txt
 │       ├── decompose.txt
 │       ├── evaluate.txt
 │       └── rewrite.txt
+│
+├── eval_data/                    # 评估数据
+│   ├── raw/                      # 原始收集数据
+│   └── annotated/                # 标注后数据
+│       └── test_set.json
+│
+├── eval_reports/                 # 评估报告
+│   └── .gitkeep
 │
 ├── tests/
 │   ├── unit/
@@ -380,7 +390,8 @@ agentic-rag-assistant/
 │
 ├── scripts/
 │   ├── start_agent.py            # 启动 Agent CLI
-│   └── start_ui.py               # 启动 Web UI
+│   ├── start_ui.py               # 启动 Web UI
+│   └── evaluate_ragas.py         # Ragas 评估 CLI
 │
 ├── docs/
 │   └── ARCHITECTURE.md
@@ -604,13 +615,15 @@ LANGFUSE_SECRET_KEY=your_langfuse_secret_key
 | B7. 回答生成节点 | 带引用的回答 | src/agent/nodes/generator.py | [ ] |
 | B8. LangGraph 组装 | 完整状态机 | src/agent/graph.py | [ ] |
 
-### C. 评估体系 [C1-C3]
+### C. 评估体系 [C1-C5]
 
 | 任务 | 说明 | 产物 | 状态 |
 |------|------|------|------|
 | C1. LangFuse 集成 | 追踪 SDK 接入 | src/evaluation/langfuse_client.py | [ ] |
-| C2. RAGAS 评估 | 离线评估脚本 | src/evaluation/ragas_evaluator.py | [ ] |
-| C3. 自定义指标 | Agent 特有指标 | src/evaluation/metrics.py | [ ] |
+| C2. Ragas 评估器 | Ragas 核心评估逻辑 | src/evaluation/ragas_evaluator.py | [ ] |
+| C3. 数据收集器 | 问答历史收集与标注 | src/evaluation/data_collector.py | [ ] |
+| C4. 评估 CLI | 离线评估脚本 | scripts/evaluate_ragas.py | [ ] |
+| C5. 自定义指标 | Agent 特有指标 | src/evaluation/metrics.py | [ ] |
 
 ### D. Web UI [D1-D3]
 
@@ -836,7 +849,134 @@ def evaluate_retrieval(
 | 简化评估逻辑 | 是 | 移除冗余的关键词匹配，直接基于scores判断 |
 | Ragas评估位置 | RAG Server端 | 需要黄金测试集和用户输入答案，适合离线执行 |
 
-### 9.5 未来扩展
+### 9.5 Agent端 Ragas 离线评估
+
+#### 9.5.1 为什么在 Agent 端做 Ragas 评估？
+
+| 对比项 | RAG MCP Server | Agent 端（本项目） |
+|--------|----------------|-------------------|
+| **Answer 来源** | chunk 拼接（fallback） | **LLM 生成**（generator.py） |
+| **Faithfulness** | 失真（答案=context，恒高分） | **有意义**（评估是否幻觉） |
+| **Answer Relevancy** | 失真（拼接文本未必回答问题） | **有意义**（评估答案质量） |
+| **评估场景** | 检索质量评估 | **端到端 RAG 质量评估** |
+
+**核心问题**：RAG Server 的 Ragas 评估直接拼接 chunks 作为 answer，导致：
+- Faithfulness 恒高（答案就是 context 的子集）
+- Answer Relevancy 失真（拼接文本未必回答用户问题）
+
+**解决方案**：在 Agent 端执行 Ragas 评估，使用 LLM 生成的真实答案。
+
+#### 9.5.2 Ragas 评估架构
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      Ragas Evaluation Pipeline                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────────┐     ┌──────────────────┐                      │
+│  │ 数据收集模块      │     │ 评估执行模块      │                      │
+│  │                  │     │                  │                      │
+│  │ - 问答历史收集    │────▶│ - RagasEvaluator │                      │
+│  │ - 手动标注接口    │     │ - 指标计算       │                      │
+│  │ - 测试集导入      │     │ - 报告生成       │                      │
+│  └──────────────────┘     └──────────────────┘                      │
+│         │                          │                                 │
+│         ▼                          ▼                                 │
+│  ┌──────────────────┐     ┌──────────────────┐                      │
+│  │ eval_data/       │     │ eval_reports/    │                      │
+│  │ ├── raw/         │     │ ├── YYYY-MM-DD/  │                      │
+│  │ │   session_xxx  │     │ │   report.json   │                      │
+│  │ └── annotated/   │     │ └── latest.json   │                      │
+│  │     test_set.json│     │                  │                      │
+│  └──────────────────┘     └──────────────────┘                      │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 9.5.3 评估指标说明
+
+| 指标 | 英文名 | 计算方式 | 意义 |
+|------|--------|----------|------|
+| **忠实度** | Faithfulness | LLM 判断答案 claims 是否都能从 contexts 推导 | 答案是否"幻觉" |
+| **答案相关性** | Answer Relevancy | LLM 生成可能的问题，计算与原问题的相似度 | 答案是否"答非所问" |
+| **上下文精确度** | Context Precision | LLM 判断每个 context 是否与问题相关 | 检索结果是否"精准" |
+
+#### 9.5.4 数据格式
+
+**测试集格式** (`eval_data/annotated/test_set.json`):
+
+```json
+{
+  "test_cases": [
+    {
+      "query": "用户问题",
+      "contexts": ["chunk1 text", "chunk2 text"],
+      "answer": "LLM 生成的答案",
+      "reference_answer": "人工标注的标准答案（可选，用于对比）",
+      "metadata": {
+        "session_id": "xxx",
+        "timestamp": "2024-01-15T10:30:00Z"
+      }
+    }
+  ]
+}
+```
+
+**评估报告格式** (`eval_reports/2024-01-15/report.json`):
+
+```json
+{
+  "evaluator": "RagasEvaluator",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "test_set_path": "eval_data/annotated/test_set.json",
+  "total_cases": 10,
+  "aggregate_metrics": {
+    "faithfulness": 0.85,
+    "answer_relevancy": 0.78,
+    "context_precision": 0.92
+  },
+  "per_case_results": [
+    {
+      "query": "什么是 RAG？",
+      "metrics": {
+        "faithfulness": 0.9,
+        "answer_relevancy": 0.85,
+        "context_precision": 0.95
+      }
+    }
+  ]
+}
+```
+
+#### 9.5.5 CLI 使用方式
+
+```bash
+# 使用标注后的测试集评估
+python scripts/evaluate_ragas.py --test-set eval_data/annotated/test_set.json
+
+# 指定输出目录
+python scripts/evaluate_ragas.py --test-set test_set.json --output-dir eval_reports/
+
+# 从 LangFuse 收集最近 7 天的问答历史
+python scripts/evaluate_ragas.py --collect-from-langfuse --days 7 --output eval_data/raw/
+
+# 仅评估指定指标
+python scripts/evaluate_ragas.py --test-set test_set.json --metrics faithfulness answer_relevancy
+
+# JSON 输出（便于管道处理）
+python scripts/evaluate_ragas.py --test-set test_set.json --json
+```
+
+#### 9.5.6 核心文件
+
+| 文件 | 职责 |
+|------|------|
+| `src/evaluation/ragas_evaluator.py` | Ragas 评估核心逻辑 |
+| `src/evaluation/data_collector.py` | 问答数据收集（从 LangFuse/Session 提取） |
+| `scripts/evaluate_ragas.py` | CLI 入口，执行离线评估 |
+| `config/evaluation.yaml` | 评估配置（指标、LLM、阈值） |
+
+### 9.6 未来扩展
 
 | 扩展方向 | 说明 | 实现方式 |
 |----------|------|----------|
