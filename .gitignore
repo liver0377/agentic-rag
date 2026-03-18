@@ -93,6 +93,9 @@ dmypy.json
 # Project-specific
 data/
 cache/
+eval_data/
+eval_reports/
+output/
 logs/
 *.log
 traces.jsonl

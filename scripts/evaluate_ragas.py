@@ -33,6 +33,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 if sys.platform == "win32":
     import io
@@ -208,8 +209,19 @@ def _print_report(report: Any, report_path: Path) -> None:
     print(f"  Total Time: {report.total_elapsed_ms:.0f} ms")
     print()
 
+    if report.pass_count + report.fail_count > 0:
+        print("-" * 60)
+        print("  PASS RATE SUMMARY")
+        print("-" * 60)
+        total_labeled = report.pass_count + report.fail_count
+        pass_pct = (report.pass_count / total_labeled * 100) if total_labeled > 0 else 0
+        print(f"  Pass: {report.pass_count} ({pass_pct:.1f}%)")
+        print(f"  Fail: {report.fail_count}")
+        print(f"  Unlabeled: {report.total_cases - total_labeled}")
+        print()
+
     print("-" * 60)
-    print("  AGGREGATE METRICS")
+    print("  AGGREGATE METRICS (RAGAS)")
     print("-" * 60)
     if report.aggregate_metrics:
         for metric, value in sorted(report.aggregate_metrics.items()):
@@ -219,12 +231,29 @@ def _print_report(report: Any, report_path: Path) -> None:
         print("  (no metrics computed)")
     print()
 
+    if report.pass_group_metrics or report.fail_group_metrics:
+        print("-" * 60)
+        print("  METRICS BY PASS/FAIL")
+        print("-" * 60)
+        if report.pass_group_metrics:
+            print("  Pass Group:")
+            for metric, value in sorted(report.pass_group_metrics.items()):
+                print(f"    {metric:<23s} {value:.4f}")
+        if report.fail_group_metrics:
+            print("  Fail Group:")
+            for metric, value in sorted(report.fail_group_metrics.items()):
+                print(f"    {metric:<23s} {value:.4f}")
+        print()
+
     print("-" * 60)
     print("  PER-CASE RESULTS")
     print("-" * 60)
     for i, result in enumerate(report.per_case_results[:10], 1):
         status = "✓" if not result.error else "✗"
-        print(f"\n  [{i}] {status} {result.query[:60]}{'...' if len(result.query) > 60 else ''}")
+        pass_label = f" [{result.pass_rate}]" if result.pass_rate else ""
+        print(
+            f"\n  [{i}] {status} {result.query[:50]}{'...' if len(result.query) > 50 else ''}{pass_label}"
+        )
         if result.metrics:
             for metric, value in sorted(result.metrics.items()):
                 print(f"      {metric}: {value:.4f}")

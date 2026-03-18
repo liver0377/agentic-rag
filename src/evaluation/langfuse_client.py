@@ -86,18 +86,25 @@ class LangFuseTracer:
 
     @contextmanager
     def trace(
-        self, name: str, metadata: Optional[Dict[str, Any]] = None
+        self,
+        name: str,
+        input: Optional[Any] = None,
+        output: Optional[Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Generator[Span, None, None]:
         """Context manager for tracing.
 
         Args:
             name: Trace name.
+            input: Input data (e.g., user query).
+            output: Output data (e.g., response).
             metadata: Optional metadata.
 
         Yields:
             Span object.
         """
         span = Span(name=name, start_time=datetime.now(), metadata=metadata or {})
+        span.metadata["_input"] = input
         self._trace_url = None
         self._trace_id = None
 
@@ -110,13 +117,27 @@ class LangFuseTracer:
 
         try:
             with self._client.start_as_current_observation(
-                as_type="span", name=name, metadata=metadata or {}
+                as_type="span",
+                name=name,
+                input=input,
+                metadata=metadata or {},
             ) as observation:
                 self._trace_id = observation.trace_id
                 try:
                     yield span
                 finally:
                     span.end_time = datetime.now()
+                    final_output = output if output is not None else span.metadata.get("output")
+                    final_metadata = {
+                        k: v for k, v in span.metadata.items() if not k.startswith("_")
+                    }
+                    update_kwargs = {}
+                    if final_output is not None:
+                        update_kwargs["output"] = final_output
+                    if final_metadata:
+                        update_kwargs["metadata"] = final_metadata
+                    if update_kwargs:
+                        observation.update(**update_kwargs)
 
             if self._trace_id:
                 self._trace_url = f"{self.config.host}/trace/{self._trace_id}"

@@ -302,8 +302,19 @@ class KnowledgeAssistant:
 
         try:
             if self._tracer:
-                with self._tracer.trace(name="agent_query", metadata={"query": query}):
+                with self._tracer.trace(
+                    name="agent_query",
+                    input={"query": query},
+                    metadata={"query": query},
+                ) as trace_span:
                     final_state = self.graph.invoke(initial_state)
+                    if isinstance(final_state, dict):
+                        trace_span.metadata["output"] = final_state.get("final_response")
+                        chunks = final_state.get("chunks", [])
+                        if chunks:
+                            contexts = [c.to_dict() if hasattr(c, "to_dict") else c for c in chunks]
+                            trace_span.metadata["contexts"] = contexts
+                            self._tracer.log_retrieval(query, contexts)
             else:
                 final_state = self.graph.invoke(initial_state)
         finally:
@@ -317,7 +328,7 @@ class KnowledgeAssistant:
                 "citations": final_state.get("citations", []),
                 "sub_queries": final_state.get("sub_queries", []),
                 "rewritten_query": final_state.get("rewritten_query"),
-                "rewritten_sub_queries": final_state.get("rewritten_sub_queries"),
+                "rewritten_sub_queries": final_state.get("rewritten_sub_queries", []),
                 "decision_path": final_state.get("decision_path", []),
                 "total_chunks": len(final_state.get("chunks", [])),
                 "trace_id": final_state.get("trace_id"),

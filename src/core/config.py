@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def _substitute_env_vars(value: str) -> str:
@@ -114,11 +117,24 @@ class LangFuseConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "LangFuseConfig":
+        public_key = data.get("public_key") or os.environ.get("LANGFUSE_PUBLIC_KEY")
+        secret_key = data.get("secret_key") or os.environ.get("LANGFUSE_SECRET_KEY")
+        host = (
+            data.get("host")
+            or os.environ.get("LANGFUSE_BASE_URL")
+            or os.environ.get("LANGFUSE_HOST")
+            or "https://cloud.langfuse.com"
+        )
+        enabled = (
+            data.get("enabled", False)
+            if not data.get("enabled", True) is True
+            else bool(public_key and secret_key)
+        )
         return cls(
-            enabled=data.get("enabled", False),
-            public_key=data.get("public_key"),
-            secret_key=data.get("secret_key"),
-            host=data.get("host", "https://cloud.langfuse.com"),
+            enabled=enabled,
+            public_key=public_key,
+            secret_key=secret_key,
+            host=host,
         )
 
 

@@ -51,6 +51,7 @@ class EvaluationResult:
     metrics: Dict[str, float] = field(default_factory=dict)
     contexts: List[str] = field(default_factory=list)
     answer: str = ""
+    pass_rate: Optional[str] = None
     elapsed_ms: float = 0.0
     error: Optional[str] = None
 
@@ -60,6 +61,7 @@ class EvaluationResult:
             "metrics": {k: round(v, 4) for k, v in self.metrics.items()},
             "contexts": self.contexts,
             "answer": self.answer[:500] + "..." if len(self.answer) > 500 else self.answer,
+            "pass_rate": self.pass_rate,
             "elapsed_ms": round(self.elapsed_ms, 1),
             "error": self.error,
         }
@@ -72,7 +74,11 @@ class EvaluationReport:
     evaluator: str = "RagasEvaluator"
     test_set_path: str = ""
     total_cases: int = 0
+    pass_count: int = 0
+    fail_count: int = 0
     aggregate_metrics: Dict[str, float] = field(default_factory=dict)
+    pass_group_metrics: Dict[str, float] = field(default_factory=dict)
+    fail_group_metrics: Dict[str, float] = field(default_factory=dict)
     per_case_results: List[EvaluationResult] = field(default_factory=list)
     total_elapsed_ms: float = 0.0
 
@@ -81,7 +87,14 @@ class EvaluationReport:
             "evaluator": self.evaluator,
             "test_set_path": self.test_set_path,
             "total_cases": self.total_cases,
+            "pass_rate_summary": {
+                "pass": self.pass_count,
+                "fail": self.fail_count,
+                "unlabeled": self.total_cases - self.pass_count - self.fail_count,
+            },
             "aggregate_metrics": {k: round(v, 4) for k, v in self.aggregate_metrics.items()},
+            "pass_group_metrics": {k: round(v, 4) for k, v in self.pass_group_metrics.items()},
+            "fail_group_metrics": {k: round(v, 4) for k, v in self.fail_group_metrics.items()},
             "per_case_results": [r.to_dict() for r in self.per_case_results],
             "total_elapsed_ms": round(self.total_elapsed_ms, 1),
         }
@@ -197,6 +210,7 @@ class RagasEvaluator:
 
         Args:
             test_cases: List of dicts with 'query', 'contexts', 'answer' keys.
+                        May also include 'pass_rate' for human annotations.
 
         Returns:
             EvaluationReport with aggregated metrics.
@@ -211,15 +225,28 @@ class RagasEvaluator:
             query = tc.get("query", "")
             contexts = tc.get("contexts", [])
             answer = tc.get("answer", "")
+            pass_rate = tc.get("pass_rate")
 
             if isinstance(contexts[0], dict) if contexts else False:
                 contexts = [c.get("text", str(c)) for c in contexts]
 
             result = self.evaluate_single(query, contexts, answer)
+            result.pass_rate = pass_rate
             report.per_case_results.append(result)
+
+            if pass_rate == "Pass":
+                report.pass_count += 1
+            elif pass_rate == "Fail":
+                report.fail_count += 1
 
         report.total_elapsed_ms = (time.monotonic() - t0) * 1000.0
         report.aggregate_metrics = self._aggregate_metrics(report.per_case_results)
+
+        pass_results = [r for r in report.per_case_results if r.pass_rate == "Pass"]
+        fail_results = [r for r in report.per_case_results if r.pass_rate == "Fail"]
+
+        report.pass_group_metrics = self._aggregate_metrics(pass_results)
+        report.fail_group_metrics = self._aggregate_metrics(fail_results)
 
         return report
 
