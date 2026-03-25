@@ -36,3 +36,18 @@ ui:
   theme: "light"
   show_trace: true
   port: 8502
+
+# 评估 LLM 配置 (独立于 Agent LLM)
+evaluation:
+  llm:
+    provider: "deepseek"
+    model: "deepseek-chat"
+    api_key: "${DEEPSEEK_API_KEY}"
+    base_url: "https://api.deepseek.com/v1"
+    temperature: 0.0
+    max_tokens: 8192
+  embedding:
+    provider: "qwen"
+    model: "text-embedding-v3"
+    api_key: "${DASHSCOPE_API_KEY}"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"

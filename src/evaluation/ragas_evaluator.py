@@ -3,7 +3,7 @@
 This evaluator uses the Ragas framework to compute LLM-as-Judge metrics:
 - Faithfulness: Does the answer stick to the retrieved context?
 - Answer Relevancy: Is the answer relevant to the query?
-- Context Precision: Are the retrieved chunks relevant and well-ordered?
+- Context Precision (without reference): Are the retrieved chunks relevant?
 
 Key Difference from RAG MCP Server:
 - RAG MCP Server uses chunk concatenation as answer (fallback), causing:
@@ -30,6 +30,22 @@ ANSWER_RELEVANCY = "answer_relevancy"
 CONTEXT_PRECISION = "context_precision"
 
 SUPPORTED_METRICS = {FAITHFULNESS, ANSWER_RELEVANCY, CONTEXT_PRECISION}
+
+
+class EmbeddingsAdapter:
+    """Adapter for ragas 0.4.x OpenAIEmbeddings to add embed_query method."""
+
+    def __init__(self, embeddings: Any):
+        self._embeddings = embeddings
+
+    def embed_query(self, text: str) -> List[float]:
+        return self._embeddings.embed_text(text)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self._embeddings.embed_texts(texts)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._embeddings, name)
 
 
 def _validate_ragas_import() -> None:
@@ -220,8 +236,9 @@ class RagasEvaluator:
         report = EvaluationReport(evaluator="RagasEvaluator", total_cases=len(test_cases))
 
         t0 = time.monotonic()
+        total = len(test_cases)
 
-        for tc in test_cases:
+        for i, tc in enumerate(test_cases, 1):
             query = tc.get("query", "")
             contexts = tc.get("contexts", [])
             answer = tc.get("answer", "")
@@ -230,9 +247,11 @@ class RagasEvaluator:
             if isinstance(contexts[0], dict) if contexts else False:
                 contexts = [c.get("text", str(c)) for c in contexts]
 
+            print(f"  [{i}/{total}] Evaluating: {query[:50]}{'...' if len(query) > 50 else ''}")
             result = self.evaluate_single(query, contexts, answer)
             result.pass_rate = pass_rate
             report.per_case_results.append(result)
+            print(f"  [{i}/{total}] Done - elapsed: {result.elapsed_ms:.0f}ms")
 
             if pass_rate == "Pass":
                 report.pass_count += 1
@@ -257,12 +276,20 @@ class RagasEvaluator:
         answer: str,
     ) -> Dict[str, float]:
         """Execute Ragas metrics and return normalized scores."""
+        import asyncio
+        from ragas import SingleTurnSample
         from ragas.metrics._faithfulness import Faithfulness
         from ragas.metrics._answer_relevance import AnswerRelevancy
-        from ragas.metrics._context_precision import ContextPrecision
+        from ragas.metrics._context_precision import LLMContextPrecisionWithoutReference
 
         llm = self._get_llm_wrapper()
         embeddings = self._get_embeddings_wrapper()
+
+        sample = SingleTurnSample(
+            user_input=query,
+            response=answer,
+            retrieved_contexts=contexts,
+        )
 
         scores: Dict[str, float] = {}
 
@@ -270,23 +297,17 @@ class RagasEvaluator:
             try:
                 if metric_name == FAITHFULNESS:
                     m = Faithfulness(llm=llm)
-                    result = m.score(
-                        user_input=query,
-                        response=answer,
-                        retrieved_contexts=contexts,
-                    )
                 elif metric_name == ANSWER_RELEVANCY:
-                    m = AnswerRelevancy(llm=llm, embeddings=embeddings)
-                    result = m.score(user_input=query, response=answer)
+                    m = AnswerRelevancy(llm=llm, embeddings=embeddings, strictness=1)
                 elif metric_name == CONTEXT_PRECISION:
-                    m = ContextPrecision(llm=llm)
-                    result = m.score(
-                        user_input=query,
-                        response=answer,
-                        retrieved_contexts=contexts,
-                    )
+                    m = LLMContextPrecisionWithoutReference(llm=llm)
                 else:
                     continue
+
+                try:
+                    result = asyncio.run(m.single_turn_ascore(sample))
+                except RuntimeError:
+                    result = m.single_turn_score(sample)
 
                 scores[metric_name] = float(result) if result is not None else 0.0
 
@@ -297,51 +318,53 @@ class RagasEvaluator:
         return scores
 
     def _get_llm_wrapper(self) -> Any:
-        """Build Ragas LLM wrapper from config."""
         if self._llm_wrapper is not None:
             return self._llm_wrapper
 
-        from openai import AsyncOpenAI
-        from ragas.llms import OpenAILLM
+        from openai import OpenAI
+        from ragas.llms import llm_factory
 
         if self.llm_config is None:
             raise ValueError("LLM config required for Ragas evaluation")
 
-        provider = getattr(self.llm_config, "provider", "openai").lower()
         api_key = getattr(self.llm_config, "api_key", None)
         base_url = getattr(self.llm_config, "base_url", None)
         model = getattr(self.llm_config, "model", "gpt-4o")
+        max_tokens = getattr(self.llm_config, "max_tokens", 8192)
 
-        if provider in ("openai", "deepseek") or base_url:
-            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        else:
-            raise ValueError(
-                f"Unsupported LLM provider for Ragas: '{provider}'. "
-                "Supported: openai, deepseek, or any OpenAI-compatible provider"
-            )
+        if not api_key:
+            raise ValueError("API key required for Ragas evaluation")
 
-        self._llm_wrapper = OpenAILLM(model=model, client=client)
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        self._llm_wrapper = llm_factory(model=model, client=client, max_tokens=max_tokens)
         return self._llm_wrapper
 
     def _get_embeddings_wrapper(self) -> Any:
-        """Build Ragas Embeddings wrapper from config."""
         if self._embeddings_wrapper is not None:
             return self._embeddings_wrapper
 
-        from openai import AsyncOpenAI
+        from openai import OpenAI
         from ragas.embeddings import OpenAIEmbeddings
+
+        api_key = None
+        base_url = None
+        model = "text-embedding-3-small"
 
         if self.embedding_config is not None:
             api_key = getattr(self.embedding_config, "api_key", None)
             base_url = getattr(self.embedding_config, "base_url", None)
             model = getattr(self.embedding_config, "model", "text-embedding-3-small")
-        else:
+
+        if not api_key:
             api_key = getattr(self.llm_config, "api_key", None)
             base_url = getattr(self.llm_config, "base_url", None)
-            model = "text-embedding-3-small"
 
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        self._embeddings_wrapper = OpenAIEmbeddings(model=model, client=client)
+        if not api_key:
+            raise ValueError("API key required for Ragas embeddings")
+
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        base_embeddings = OpenAIEmbeddings(model=model, client=client)
+        self._embeddings_wrapper = EmbeddingsAdapter(base_embeddings)
         return self._embeddings_wrapper
 
     @staticmethod
@@ -364,29 +387,36 @@ class RagasEvaluator:
 
 def create_ragas_evaluator(
     llm_config: Optional[Any] = None,
+    embedding_config: Optional[Any] = None,
     metrics: Optional[Sequence[str]] = None,
 ) -> Optional[RagasEvaluator]:
     """Create RagasEvaluator from configuration.
 
     Args:
-        llm_config: LLM configuration. If None, loads from settings.
+        llm_config: LLM configuration. If None, loads from settings.evaluation.llm.
+        embedding_config: Embedding configuration. If None, loads from settings.evaluation.embedding.
         metrics: Metrics to compute. Defaults to all supported.
 
     Returns:
         RagasEvaluator instance, or None if no valid config.
     """
-    if llm_config is None:
+    if llm_config is None or embedding_config is None:
         from src.core.config import load_settings
 
         settings = load_settings()
-        llm_config = settings.llm
+        if llm_config is None:
+            llm_config = settings.evaluation.llm
+        if embedding_config is None:
+            embedding_config = settings.evaluation.embedding
 
     if not getattr(llm_config, "api_key", None):
         logger.warning("No API key configured, cannot create RagasEvaluator")
         return None
 
     try:
-        return RagasEvaluator(llm_config=llm_config, metrics=metrics)
+        return RagasEvaluator(
+            llm_config=llm_config, embedding_config=embedding_config, metrics=metrics
+        )
     except ImportError as exc:
         logger.warning("Ragas not installed: %s", exc)
         return None

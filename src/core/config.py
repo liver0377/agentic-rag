@@ -158,6 +158,23 @@ class UIConfig:
 
 
 @dataclass
+class EvaluationConfig:
+    """Evaluation LLM configuration (separate from agent LLM)."""
+
+    llm: LLMConfig = field(default_factory=LLMConfig)
+    embedding: LLMConfig = field(default_factory=LLMConfig)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EvaluationConfig":
+        llm_data = data.get("llm", {})
+        embedding_data = data.get("embedding", {})
+        return cls(
+            llm=LLMConfig.from_dict(llm_data) if llm_data else LLMConfig(),
+            embedding=LLMConfig.from_dict(embedding_data) if embedding_data else LLMConfig(),
+        )
+
+
+@dataclass
 class Settings:
     """Application settings."""
 
@@ -166,6 +183,7 @@ class Settings:
     rag_server: RAGServerConfig = field(default_factory=RAGServerConfig)
     langfuse: LangFuseConfig = field(default_factory=LangFuseConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Settings":
@@ -175,6 +193,7 @@ class Settings:
             rag_server=RAGServerConfig.from_dict(data.get("rag_server", {})),
             langfuse=LangFuseConfig.from_dict(data.get("langfuse", {})),
             ui=UIConfig.from_dict(data.get("ui", {})),
+            evaluation=EvaluationConfig.from_dict(data.get("evaluation", {})),
         )
 
 

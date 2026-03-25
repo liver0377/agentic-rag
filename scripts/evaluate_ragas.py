@@ -7,6 +7,9 @@ Usage:
     # Evaluate with a test set
     python scripts/evaluate_ragas.py --test-set eval_data/annotated/test_set.json
 
+    # Evaluate from ablation results (supports group statistics)
+    python scripts/evaluate_ragas.py --ablation-input eval_data/eval_results_agent_full.json
+
     # Specify output directory
     python scripts/evaluate_ragas.py --test-set test_set.json --output-dir eval_reports/
 
@@ -33,7 +36,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List
 
 if sys.platform == "win32":
     import io
@@ -59,10 +62,22 @@ def parse_args() -> argparse.Namespace:
         help="Path to test set JSON file.",
     )
     parser.add_argument(
+        "--ablation-input",
+        type=str,
+        help="Path to ablation results JSON file (from run_agent_ablation.py).",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="eval_reports",
         help="Output directory for reports (default: eval_reports).",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default=None,
+        help="Output JSON file path (for ablation mode).",
     )
     parser.add_argument(
         "--metrics",
@@ -111,6 +126,179 @@ def load_settings() -> Any:
         sys.exit(2)
 
 
+def load_ablation_results(input_path: Path) -> tuple:
+    """Load results from run_agent_ablation.py output."""
+    with open(input_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    config_name = data.get("config", "unknown")
+    results = data.get("results", [])
+
+    test_cases = []
+    for r in results:
+        answer = r.get("answer", "")
+        contexts = r.get("contexts", [])
+
+        if not answer or not contexts:
+            continue
+
+        test_cases.append(
+            {
+                "query": r.get("query", ""),
+                "answer": answer,
+                "contexts": contexts,
+                "ground_truth": r.get("ground_truth", ""),
+                "group": r.get("group", "unknown"),
+                "difficulty": r.get("difficulty", "medium"),
+            }
+        )
+
+    return test_cases, config_name
+
+
+def calculate_metrics_by_group(
+    results: List[Any],
+    test_cases: List[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """Calculate metrics grouped by test group."""
+    groups: Dict[str, List[int]] = {}
+
+    for i, tc in enumerate(test_cases):
+        group = tc.get("group", "unknown")
+        if group not in groups:
+            groups[group] = []
+        groups[group].append(i)
+
+    by_group: Dict[str, Dict[str, Any]] = {}
+    for group_name, indices in groups.items():
+        group_results = [results[i] for i in indices if i < len(results)]
+
+        if not group_results:
+            continue
+
+        metrics_sum: Dict[str, float] = {}
+        valid_count = 0
+
+        for r in group_results:
+            if hasattr(r, "metrics") and r.metrics:
+                valid_count += 1
+                for k, v in r.metrics.items():
+                    if k not in metrics_sum:
+                        metrics_sum[k] = 0.0
+                    metrics_sum[k] += float(v)
+
+        if valid_count > 0:
+            by_group[group_name] = {k: round(v / valid_count, 4) for k, v in metrics_sum.items()}
+            by_group[group_name]["count"] = valid_count
+
+    return by_group
+
+
+def run_ablation_evaluation(args: argparse.Namespace, settings: Any) -> int:
+    """Run evaluation from ablation results with group statistics."""
+    input_path = Path(args.ablation_input)
+    if not input_path.exists():
+        print(f"Error: Ablation input not found: {input_path}", file=sys.stderr)
+        return 2
+
+    try:
+        from src.evaluation.ragas_evaluator import RagasEvaluator, create_ragas_evaluator
+    except ImportError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print("Install required packages: pip install ragas datasets", file=sys.stderr)
+        return 2
+
+    evaluator = create_ragas_evaluator(
+        llm_config=settings.llm,
+        metrics=args.metrics,
+    )
+    if evaluator is None:
+        print("Error: Failed to create RagasEvaluator. Check LLM configuration.", file=sys.stderr)
+        return 2
+
+    print(f"Loading ablation results from: {input_path}")
+    test_cases, config_name = load_ablation_results(input_path)
+
+    if not test_cases:
+        print("Error: No valid test cases found in ablation results.", file=sys.stderr)
+        return 1
+
+    print(f"\nRunning Ragas evaluation...")
+    print(f"  Config: {config_name}")
+    print(f"  Test cases: {len(test_cases)}")
+    print(f"  Metrics: {args.metrics or ['faithfulness', 'answer_relevancy', 'context_precision']}")
+    print()
+
+    report = evaluator.evaluate_batch(test_cases)
+
+    by_group = calculate_metrics_by_group(report.per_case_results, test_cases)
+
+    output_data = {
+        "config": config_name,
+        "timestamp": datetime.now().isoformat(),
+        "total_cases": report.total_cases,
+        "aggregate_metrics": {k: round(v, 4) for k, v in report.aggregate_metrics.items()},
+        "by_group": by_group,
+        "per_case_results": [
+            {
+                "query": r.query,
+                "group": test_cases[i].get("group", "unknown")
+                if i < len(test_cases)
+                else "unknown",
+                "metrics": {k: round(v, 4) for k, v in r.metrics.items()},
+                "error": r.error,
+            }
+            for i, r in enumerate(report.per_case_results)
+        ],
+        "total_elapsed_ms": round(report.total_elapsed_ms, 1),
+    }
+
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        output_dir = PROJECT_ROOT / "eval_data"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"ragas_metrics_{config_name}.json"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(output_data, f, indent=2, ensure_ascii=False)
+
+    print()
+    print("=" * 60)
+    print("  RAGAS EVALUATION REPORT (ABLATION MODE)")
+    print("=" * 60)
+    print(f"  Config: {config_name}")
+    print(f"  Test Cases: {report.total_cases}")
+    print(f"  Total Time: {report.total_elapsed_ms:.0f} ms")
+    print()
+
+    print("-" * 60)
+    print("  AGGREGATE METRICS")
+    print("-" * 60)
+    for metric, value in sorted(report.aggregate_metrics.items()):
+        bar = _render_bar(value)
+        print(f"  {metric:<25s} {bar} {value:.4f}")
+    print()
+
+    if by_group:
+        print("-" * 60)
+        print("  METRICS BY GROUP")
+        print("-" * 60)
+        for group_name, metrics in sorted(by_group.items()):
+            count = metrics.pop("count", 0)
+            print(f"\n  [{group_name}] (n={count})")
+            for metric, value in sorted(metrics.items()):
+                print(f"    {metric:<23s} {value:.4f}")
+        print()
+
+    print("=" * 60)
+    print(f"  Report saved to: {output_path}")
+    print("=" * 60)
+
+    return 0
+
+
 def main() -> int:
     args = parse_args()
 
@@ -119,8 +307,14 @@ def main() -> int:
 
     settings = load_settings()
 
+    if args.ablation_input:
+        return run_ablation_evaluation(args, settings)
+
     if not args.test_set and not args.collect_from_langfuse:
-        print("Error: Either --test-set or --collect-from-langfuse is required.", file=sys.stderr)
+        print(
+            "Error: Either --test-set, --ablation-input, or --collect-from-langfuse is required.",
+            file=sys.stderr,
+        )
         return 2
 
     try:
