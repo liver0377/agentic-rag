@@ -1,0 +1,477 @@
+{
+  "metadata": {
+    "description": "预置记忆数据集，用于长期记忆模块测试",
+    "version": "1.0",
+    "created_at": "2025-01-01T00:00:00Z",
+    "total_memories": 60
+  },
+  "users": [
+    {
+      "user_id": "user_001",
+      "memories": [
+        {
+          "id": "mem_001_pref",
+          "type": "preference",
+          "content": "用户偏好：回答要简洁，不要废话",
+          "importance": 1.0,
+          "metadata": {
+            "category": "communication_style"
+          }
+        },
+        {
+          "id": "mem_001_fact_1",
+          "type": "fact",
+          "content": "用户部门：财务部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_001_fact_2",
+          "type": "fact",
+          "content": "用户级别：经理",
+          "importance": 0.9,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_001_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了报销流程，用户关心审批速度",
+          "role": "assistant",
+          "importance": 0.8,
+          "metadata": {
+            "session_id": "session_2024_12_15",
+            "topic": "报销"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_002",
+      "memories": [
+        {
+          "id": "mem_002_pref",
+          "type": "preference",
+          "content": "用户偏好：喜欢表格形式展示",
+          "importance": 1.0,
+          "metadata": {
+            "category": "communication_style"
+          }
+        },
+        {
+          "id": "mem_002_fact_1",
+          "type": "fact",
+          "content": "用户部门：技术部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_002_fact_2",
+          "type": "fact",
+          "content": "用户入职时间：2024 年 6 月",
+          "importance": 0.7,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_002_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了请假制度，用户想了解年假规则",
+          "role": "assistant",
+          "importance": 0.8,
+          "metadata": {
+            "session_id": "session_2024_12_20",
+            "topic": "请假"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_003",
+      "memories": [
+        {
+          "id": "mem_003_pref",
+          "type": "preference",
+          "content": "用户偏好：需要详细解释和示例",
+          "importance": 1.0,
+          "metadata": {
+            "category": "communication_style"
+          }
+        },
+        {
+          "id": "mem_003_fact_1",
+          "type": "fact",
+          "content": "用户部门：人力资源部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_003_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了入职流程，用户是新员工导师",
+          "role": "assistant",
+          "importance": 0.9,
+          "metadata": {
+            "session_id": "session_2024_12_18",
+            "topic": "入职"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_004",
+      "memories": [
+        {
+          "id": "mem_004_pref",
+          "type": "preference",
+          "content": "用户偏好：所有输出用 PDF 格式",
+          "importance": 1.0,
+          "metadata": {
+            "category": "output_format"
+          }
+        },
+        {
+          "id": "mem_004_fact_1",
+          "type": "fact",
+          "content": "用户部门：行政部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_004_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了考勤规定，用户是考勤管理员",
+          "role": "assistant",
+          "importance": 0.9,
+          "metadata": {
+            "session_id": "session_2024_12_22",
+            "topic": "考勤"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_005",
+      "memories": [
+        {
+          "id": "mem_005_pref",
+          "type": "preference",
+          "content": "用户偏好：优先说结论，再说原因",
+          "importance": 1.0,
+          "metadata": {
+            "category": "communication_style"
+          }
+        },
+        {
+          "id": "mem_005_fact_1",
+          "type": "fact",
+          "content": "用户部门：销售部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_005_fact_2",
+          "type": "fact",
+          "content": "用户级别：总监",
+          "importance": 0.9,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_005_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了报销政策中的差旅费报销",
+          "role": "assistant",
+          "importance": 0.8,
+          "metadata": {
+            "session_id": "session_2024_12_10",
+            "topic": "报销"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_006",
+      "memories": [
+        {
+          "id": "mem_006_pref",
+          "type": "preference",
+          "content": "用户偏好：回答要简洁，不要废话",
+          "importance": 1.0,
+          "metadata": {
+            "category": "communication_style"
+          }
+        },
+        {
+          "id": "mem_006_fact_1",
+          "type": "fact",
+          "content": "用户部门：市场部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_006_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了请假制度，用户关心病假工资计算",
+          "role": "assistant",
+          "importance": 0.8,
+          "metadata": {
+            "session_id": "session_2024_12_08",
+            "topic": "请假"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_007",
+      "memories": [
+        {
+          "id": "mem_007_pref",
+          "type": "preference",
+          "content": "用户偏好：喜欢表格形式展示",
+          "importance": 1.0,
+          "metadata": {
+            "category": "communication_style"
+          }
+        },
+        {
+          "id": "mem_007_fact_1",
+          "type": "fact",
+          "content": "用户部门：法务部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_007_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了入职合同条款，用户负责合同审核",
+          "role": "assistant",
+          "importance": 0.9,
+          "metadata": {
+            "session_id": "session_2024_12_05",
+            "topic": "入职"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_008",
+      "memories": [
+        {
+          "id": "mem_008_pref",
+          "type": "preference",
+          "content": "用户偏好：需要详细解释和示例",
+          "importance": 1.0,
+          "metadata": {
+            "category": "communication_style"
+          }
+        },
+        {
+          "id": "mem_008_fact_1",
+          "type": "fact",
+          "content": "用户部门：研发部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_008_fact_2",
+          "type": "fact",
+          "content": "用户入职时间：2023 年 3 月",
+          "importance": 0.7,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_008_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了考勤规定中的弹性工作制",
+          "role": "assistant",
+          "importance": 0.8,
+          "metadata": {
+            "session_id": "session_2024_12_12",
+            "topic": "考勤"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_009",
+      "memories": [
+        {
+          "id": "mem_009_pref",
+          "type": "preference",
+          "content": "用户偏好：所有输出用 PDF 格式",
+          "importance": 1.0,
+          "metadata": {
+            "category": "output_format"
+          }
+        },
+        {
+          "id": "mem_009_fact_1",
+          "type": "fact",
+          "content": "用户部门：采购部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_009_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了报销流程中的采购审批",
+          "role": "assistant",
+          "importance": 0.8,
+          "metadata": {
+            "session_id": "session_2024_12_03",
+            "topic": "报销"
+          }
+        }
+      ]
+    },
+    {
+      "user_id": "user_010",
+      "memories": [
+        {
+          "id": "mem_010_pref",
+          "type": "preference",
+          "content": "用户偏好：优先说结论，再说原因",
+          "importance": 1.0,
+          "metadata": {
+            "category": "communication_style"
+          }
+        },
+        {
+          "id": "mem_010_fact_1",
+          "type": "fact",
+          "content": "用户部门：运营部",
+          "importance": 1.0,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_010_fact_2",
+          "type": "fact",
+          "content": "用户级别：主管",
+          "importance": 0.9,
+          "metadata": {
+            "category": "user_profile"
+          }
+        },
+        {
+          "id": "mem_010_conv_1",
+          "type": "conversation",
+          "content": "上次讨论了请假制度中的年假累积规则",
+          "role": "assistant",
+          "importance": 0.8,
+          "metadata": {
+            "session_id": "session_2024_11_28",
+            "topic": "请假"
+          }
+        }
+      ]
+    }
+  ],
+  "test_queries": [
+    {
+      "query_id": "q_001",
+      "user_id": "user_001",
+      "query": "报销相关政策是什么？",
+      "expected_memory_ids": ["mem_001_pref", "mem_001_conv_1"],
+      "expected_keywords": ["简洁", "报销"],
+      "scenario": "enhance"
+    },
+    {
+      "query_id": "q_002",
+      "user_id": "user_002",
+      "query": "上次讨论的请假政策，现在还有效吗？",
+      "expected_memory_ids": ["mem_002_pref", "mem_002_conv_1"],
+      "expected_keywords": ["表格", "请假", "年假"],
+      "scenario": "cross_session"
+    },
+    {
+      "query_id": "q_003",
+      "user_id": "user_003",
+      "query": "入职流程是怎样的？",
+      "expected_memory_ids": ["mem_003_pref", "mem_003_conv_1"],
+      "expected_keywords": ["详细", "入职"],
+      "scenario": "enhance"
+    },
+    {
+      "query_id": "q_004",
+      "user_id": "user_004",
+      "query": "考勤规定有哪些？",
+      "expected_memory_ids": ["mem_004_pref", "mem_004_conv_1"],
+      "expected_keywords": ["PDF", "考勤"],
+      "scenario": "enhance"
+    },
+    {
+      "query_id": "q_005",
+      "user_id": "user_005",
+      "query": "差旅费怎么报销？",
+      "expected_memory_ids": ["mem_005_pref", "mem_005_conv_1"],
+      "expected_keywords": ["结论", "报销", "差旅"],
+      "scenario": "cross_session"
+    },
+    {
+      "query_id": "q_006",
+      "user_id": "user_006",
+      "query": "病假工资怎么算？",
+      "expected_memory_ids": ["mem_006_pref", "mem_006_conv_1"],
+      "expected_keywords": ["简洁", "病假"],
+      "scenario": "cross_session"
+    },
+    {
+      "query_id": "q_007",
+      "user_id": "user_007",
+      "query": "入职合同有什么注意事项？",
+      "expected_memory_ids": ["mem_007_pref", "mem_007_conv_1"],
+      "expected_keywords": ["表格", "合同"],
+      "scenario": "cross_session"
+    },
+    {
+      "query_id": "q_008",
+      "user_id": "user_008",
+      "query": "弹性工作制怎么规定的？",
+      "expected_memory_ids": ["mem_008_pref", "mem_008_conv_1"],
+      "expected_keywords": ["详细", "弹性"],
+      "scenario": "cross_session"
+    },
+    {
+      "query_id": "q_009",
+      "user_id": "user_009",
+      "query": "采购报销流程是什么？",
+      "expected_memory_ids": ["mem_009_pref", "mem_009_conv_1"],
+      "expected_keywords": ["PDF", "采购"],
+      "scenario": "cross_session"
+    },
+    {
+      "query_id": "q_010",
+      "user_id": "user_010",
+      "query": "年假可以累积吗？",
+      "expected_memory_ids": ["mem_010_pref", "mem_010_conv_1"],
+      "expected_keywords": ["结论", "年假"],
+      "scenario": "cross_session"
+    }
+  ]
+}

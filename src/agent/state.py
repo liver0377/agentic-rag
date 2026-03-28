@@ -55,6 +55,12 @@ class AgentState:
         decision_path: List of decisions made by the agent.
         messages: Conversation messages (for multi-turn support).
         error: Error message if any.
+        user_id: User ID for memory management.
+        session_id: Session ID for memory management.
+        need_memory: Whether memory recall is needed.
+        memory_type: Type of memory needed ("short_term" | "long_term").
+        recalled_memories: Recalled memories from memory system.
+        saved_memories: Memories saved during this turn.
     """
 
     original_query: str = ""
@@ -72,6 +78,51 @@ class AgentState:
     decision_path: Annotated[List[str], reduce_strings] = field(default_factory=list)
     messages: Annotated[List[Dict[str, str]], add_messages] = field(default_factory=list)
     error: Optional[str] = None
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    need_memory: bool = False
+    memory_type: Optional[str] = None
+    recalled_memories: List[Dict[str, Any]] = field(default_factory=list)
+    saved_memories: List[Dict[str, Any]] = field(default_factory=list)
+    is_new_session: bool = False
+    memory_context: str = ""
+
+    def add_decision(self, decision: str) -> None:
+        self.decision_path = self.decision_path + [decision]
+
+    def get_current_query(self) -> str:
+        return self.rewritten_query or self.original_query
+
+    def get_queries_for_retrieval(self) -> List[str]:
+        if self.rewritten_sub_queries:
+            return self.rewritten_sub_queries
+        if self.sub_queries:
+            return self.sub_queries
+        if self.rewritten_query:
+            return [self.rewritten_query]
+        return [self.original_query]
+
+    def to_output_dict(self) -> Dict[str, Any]:
+        return {
+            "query": self.original_query,
+            "response": self.final_response,
+            "citations": self.citations,
+            "sub_queries": self.sub_queries,
+            "rewritten_query": self.rewritten_query,
+            "rewritten_sub_queries": self.rewritten_sub_queries,
+            "decision_path": self.decision_path,
+            "total_chunks": len(self.chunks),
+            "trace_id": self.trace_id,
+            "error": self.error,
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "need_memory": self.need_memory,
+            "memory_type": self.memory_type,
+            "recalled_memories": self.recalled_memories,
+            "saved_memories": self.saved_memories,
+            "is_new_session": self.is_new_session,
+            "memory_context": self.memory_context,
+        }
 
     def add_decision(self, decision: str) -> None:
         """Add a decision to the path."""
@@ -110,15 +161,28 @@ class AgentState:
             "total_chunks": len(self.chunks),
             "trace_id": self.trace_id,
             "error": self.error,
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "need_memory": self.need_memory,
+            "memory_type": self.memory_type,
+            "recalled_memories": self.recalled_memories,
+            "saved_memories": self.saved_memories,
         }
 
 
-def create_initial_state(query: str, trace_id: Optional[str] = None) -> AgentState:
+def create_initial_state(
+    query: str,
+    trace_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> AgentState:
     """Create initial state for a new query.
 
     Args:
         query: The user's question.
         trace_id: Optional trace ID.
+        session_id: Optional session ID for memory.
+        user_id: Optional user ID for memory.
 
     Returns:
         Initial AgentState.
@@ -128,5 +192,7 @@ def create_initial_state(query: str, trace_id: Optional[str] = None) -> AgentSta
     return AgentState(
         original_query=query,
         trace_id=trace_id or generate_trace_id(),
+        session_id=session_id,
+        user_id=user_id,
         decision_path=["start"],
     )
