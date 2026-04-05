@@ -108,3 +108,7 @@ traces.jsonl
 .env.*.local
 secrets.yaml
 nonexistent_traces.jsonl/
+
+# eval
+eval_data/
+eval_reports
